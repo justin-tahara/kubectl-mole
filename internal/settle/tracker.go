@@ -75,6 +75,10 @@ func (t *tracker) observe(now time.Time, s snapshot) (Outcome, bool) {
 	return "", false
 }
 
+func (t *tracker) observation() Observation {
+	return Observation{CurrentPods: t.lastSnap.currentPods, OldPods: t.lastSnap.oldPods}
+}
+
 // timeoutVerdict classifies a watch that hit its timeout. Failed requires a
 // concrete terminal indicator; everything else is progressing — conflating
 // the two is how automation rolls back a deployment that was 30 seconds from

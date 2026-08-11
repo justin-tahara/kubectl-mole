@@ -1,0 +1,268 @@
+//go:build e2e
+
+// End-to-end signature scenarios against a disposable cluster: each one
+// reproduces a real failure and asserts the catalogue names it. Gated on
+// MOLE_E2E_CONTEXT exactly like the settle e2e tests. AdmissionRejected has
+// no scenario here (it needs a webhook server) and is covered by unit tests.
+package signatures_test
+
+import (
+	"context"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/ptr"
+
+	"github.com/justin-tahara/kubectl-mole/internal/settle"
+	"github.com/justin-tahara/kubectl-mole/internal/signatures"
+)
+
+const image = "public.ecr.aws/docker/library/busybox:1.36"
+
+func client(t *testing.T) *kubernetes.Clientset {
+	t.Helper()
+	ctxName := os.Getenv("MOLE_E2E_CONTEXT")
+	if ctxName == "" {
+		t.Skip("MOLE_E2E_CONTEXT not set; set it to a disposable cluster's context (e.g. kind-mole-dev) to run e2e tests")
+	}
+	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{CurrentContext: ctxName},
+	).ClientConfig()
+	if err != nil {
+		t.Fatalf("load kubeconfig for context %q: %v", ctxName, err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+	return cs
+}
+
+func testNamespace(t *testing.T, cs *kubernetes.Clientset) string {
+	t.Helper()
+	ns, err := cs.CoreV1().Namespaces().Create(context.Background(),
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "mole-sig-"}},
+		metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cs.CoreV1().Namespaces().Delete(context.Background(), ns.Name, metav1.DeleteOptions{})
+	})
+	return ns.Name
+}
+
+func newDeployment(name string, mut ...func(*appsv1.Deployment)) *appsv1.Deployment {
+	labels := map[string]string{"app": name}
+	d := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: ptr.To(int32(1)),
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					TerminationGracePeriodSeconds: ptr.To(int64(2)),
+					Containers: []corev1.Container{{
+						Name:    "main",
+						Image:   image,
+						Command: []string{"sh", "-c", "sleep 3600"},
+					}},
+				},
+			},
+		},
+	}
+	for _, m := range mut {
+		m(d)
+	}
+	return d
+}
+
+// watchAndDiagnose runs the settle engine (asserting the workload does not
+// settle), then polls Diagnose until the wanted signature appears — pod
+// status flaps between backoff states, so a single instant can miss it.
+func watchAndDiagnose(t *testing.T, cs *kubernetes.Clientset, ns, name, wantSignature string, timeout time.Duration) signatures.Finding {
+	t.Helper()
+	target := settle.Target{Kind: settle.KindDeployment, Namespace: ns, Name: name}
+	res, err := settle.Run(context.Background(), cs, target,
+		settle.Options{Timeout: timeout, StableFor: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("settle.Run: %v", err)
+	}
+	t.Logf("outcome=%s reason=%q", res.Outcome, res.Reason)
+	if res.Outcome == settle.OutcomeSettled {
+		t.Fatalf("scenario unexpectedly settled")
+	}
+
+	ref := signatures.TargetRef{Kind: "Deployment", Namespace: ns, Name: name}
+	deadline := time.Now().Add(30 * time.Second)
+	var last signatures.Report
+	for {
+		pods := listPods(t, cs, ns, name)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		last = signatures.Diagnose(ctx, cs, ref, pods)
+		cancel()
+		for _, f := range last.Findings {
+			if f.Signature == wantSignature {
+				t.Logf("finding: %s: %s (chain %v)", f.Signature, f.Cause, f.Chain)
+				return f
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no %s finding before deadline; last report: %+v", wantSignature, last)
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func listPods(t *testing.T, cs *kubernetes.Clientset, ns, app string) []*corev1.Pod {
+	t.Helper()
+	list, err := cs.CoreV1().Pods(ns).List(context.Background(), metav1.ListOptions{LabelSelector: "app=" + app})
+	if err != nil {
+		t.Fatalf("list pods: %v", err)
+	}
+	pods := make([]*corev1.Pod, 0, len(list.Items))
+	for i := range list.Items {
+		pods = append(pods, &list.Items[i])
+	}
+	return pods
+}
+
+func TestE2EImagePull(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("pull", func(d *appsv1.Deployment) {
+		d.Spec.Template.Spec.Containers[0].Image = "ghcr.io/justin-tahara/no-such-image:v1"
+		d.Spec.Template.Spec.Containers[0].Command = nil
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "pull", "ImagePullBackOff", 30*time.Second)
+	if !strings.Contains(f.Cause, "no-such-image") {
+		t.Fatalf("cause should name the image, got %q", f.Cause)
+	}
+	if len(f.Chain) != 3 || !strings.HasPrefix(f.Chain[1], "ReplicaSet/") {
+		t.Fatalf("chain should walk Deployment -> ReplicaSet -> Pod, got %v", f.Chain)
+	}
+	if len(f.Evidence) == 0 {
+		t.Fatal("expected pull-error evidence")
+	}
+}
+
+func TestE2ECrashLoopWithLogEvidence(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("crash", func(d *appsv1.Deployment) {
+		d.Spec.Template.Spec.Containers[0].Command = []string{"sh", "-c", "echo MOLE-LOG-MARKER; sleep 1; exit 7"}
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "crash", "CrashLoopBackOff", 40*time.Second)
+	if !strings.Contains(f.Cause, "exit code 7") {
+		t.Fatalf("cause should carry the exit code, got %q", f.Cause)
+	}
+	foundLog := false
+	for _, ev := range f.Evidence {
+		if ev.Source == "log" && strings.Contains(ev.Text, "MOLE-LOG-MARKER") {
+			foundLog = true
+		}
+	}
+	if !foundLog {
+		t.Fatalf("previous-container log evidence missing: %+v", f.Evidence)
+	}
+}
+
+func TestE2EOOMKilled(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("oom", func(d *appsv1.Deployment) {
+		c := &d.Spec.Template.Spec.Containers[0]
+		c.Command = []string{"sh", "-c", "sleep 2; tail /dev/zero"}
+		c.Resources.Limits = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("16Mi")}
+		c.Resources.Requests = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("16Mi")}
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "oom", "OOMKilled", 40*time.Second)
+	if !strings.Contains(f.Cause, "16Mi") {
+		t.Fatalf("cause should carry the memory limit, got %q", f.Cause)
+	}
+}
+
+func TestE2EUnschedulable(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("big", func(d *appsv1.Deployment) {
+		d.Spec.Template.Spec.Containers[0].Resources.Requests = corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("64"),
+		}
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "big", "PodUnschedulable", 20*time.Second)
+	if !strings.Contains(f.Cause, "Insufficient cpu") {
+		t.Fatalf("cause should carry the scheduler predicate, got %q", f.Cause)
+	}
+}
+
+func TestE2EQuotaExceeded(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	_, err := cs.CoreV1().ResourceQuotas(ns).Create(context.Background(), &corev1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{Name: "no-pods"},
+		Spec:       corev1.ResourceQuotaSpec{Hard: corev1.ResourceList{corev1.ResourcePods: resource.MustParse("0")}},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create quota: %v", err)
+	}
+	create(t, cs, ns, newDeployment("quota"))
+
+	f := watchAndDiagnose(t, cs, ns, "quota", "QuotaExceeded", 20*time.Second)
+	if !strings.Contains(f.Cause, "no-pods") {
+		t.Fatalf("cause should name the quota, got %q", f.Cause)
+	}
+	if len(f.Chain) != 1 || f.Chain[0] != "Deployment/quota" {
+		t.Fatalf("workload-level finding should chain to the workload only, got %v", f.Chain)
+	}
+}
+
+func TestE2EPVCPending(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	_, err := cs.CoreV1().PersistentVolumeClaims(ns).Create(context.Background(), &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "data"},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			StorageClassName: ptr.To("no-such-class"),
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create pvc: %v", err)
+	}
+	create(t, cs, ns, newDeployment("vol", func(d *appsv1.Deployment) {
+		d.Spec.Template.Spec.Volumes = []corev1.Volume{{
+			Name:         "data",
+			VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"}},
+		}}
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "vol", "PVCPending", 20*time.Second)
+	if !strings.Contains(f.Cause, `"data"`) || !strings.Contains(f.Cause, "no-such-class") {
+		t.Fatalf("cause should name the PVC and storageClass, got %q", f.Cause)
+	}
+}
+
+func create(t *testing.T, cs *kubernetes.Clientset, ns string, d *appsv1.Deployment) {
+	t.Helper()
+	if _, err := cs.AppsV1().Deployments(ns).Create(context.Background(), d, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+}

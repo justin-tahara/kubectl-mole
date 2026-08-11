@@ -1,4 +1,5 @@
 /bin/
 /dist/
+/.kube/
 coverage.out
 .DS_Store

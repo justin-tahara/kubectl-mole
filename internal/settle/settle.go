@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 )
@@ -47,6 +48,16 @@ type Result struct {
 	Outcome Outcome
 	Reason  string
 	Elapsed time.Duration
+	// Final is the last observation of the watch, for downstream diagnosis.
+	Final Observation
+}
+
+// Observation is the state of the target at the end of the watch.
+type Observation struct {
+	// CurrentPods are the existing current-revision pods, sorted by name.
+	CurrentPods []*corev1.Pod
+	// OldPods counts previous-revision pods still present.
+	OldPods int
 }
 
 // Options tune the watch.
@@ -96,7 +107,7 @@ func Run(parent context.Context, cs kubernetes.Interface, target Target, opts Op
 			return Result{}, err
 		}
 		if out, done := tr.observe(time.Now(), snap); done {
-			return Result{Outcome: out, Reason: tr.lastReason, Elapsed: time.Since(start)}, nil
+			return Result{Outcome: out, Reason: tr.lastReason, Elapsed: time.Since(start), Final: tr.observation()}, nil
 		}
 		select {
 		case <-ctx.Done():
@@ -104,7 +115,7 @@ func Run(parent context.Context, cs kubernetes.Interface, target Target, opts Op
 				return Result{}, parent.Err()
 			}
 			out, reason := tr.timeoutVerdict()
-			return Result{Outcome: out, Reason: reason, Elapsed: time.Since(start)}, nil
+			return Result{Outcome: out, Reason: reason, Elapsed: time.Since(start), Final: tr.observation()}, nil
 		case <-ticker.C:
 		}
 	}

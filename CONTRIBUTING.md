@@ -17,6 +17,18 @@ self-verifying and grows the benchmark suite for free.
 This document gains a full worked example (one signature, end to end) when the
 framework lands.
 
+## Running the e2e tests
+
+```
+make kind-up    # disposable kind cluster, kubeconfig kept inside the repo
+make e2e
+make kind-down
+```
+
+These never touch `~/.kube/config` or your current kube context: kind writes
+to the gitignored `.kube/config` in the repo, and the tests refuse to run
+unless `MOLE_E2E_CONTEXT` names the target context explicitly.
+
 ## Ground rules
 
 - Sign your commits off (DCO): `git commit -s`. There is no CLA.

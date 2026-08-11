@@ -1,0 +1,8 @@
+version: "2"
+
+linters:
+  exclusions:
+    presets:
+      # Writes to stdout/stderr are unactionable if they fail; do not force
+      # error checks on fmt.Fprint* and friends.
+      - std-error-handling

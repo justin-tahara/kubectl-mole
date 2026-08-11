@@ -1,0 +1,35 @@
+# Read-only ClusterRole covering everything kubectl-mole inspects.
+# Bind it to whatever identity runs the tool:
+#   kubectl apply -f deploy/rbac.yaml
+#   kubectl create clusterrolebinding kubectl-mole --clusterrole=kubectl-mole-reader --user=<you>
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubectl-mole-reader
+rules:
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - controllerrevisions
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources:
+      - pods
+      - events
+      - persistentvolumeclaims
+      - persistentvolumes
+      - resourcequotas
+      - nodes
+      - namespaces
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs: [get]
+  - apiGroups: ["events.k8s.io"]
+    resources:
+      - events
+    verbs: [get, list, watch]

@@ -37,7 +37,7 @@ jobs:
       - uses: helm/kind-action@v1
         with:
           cluster_name: mole-ci
-      - run: go test -tags e2e -v -timeout 15m ./internal/settle/...
+      - run: go test -tags e2e -v -timeout 20m ./...
         env:
           MOLE_E2E_CONTEXT: kind-mole-ci
   licenses:

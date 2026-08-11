@@ -12,7 +12,5 @@ var version = "dev"
 
 func main() {
 	streams := genericiooptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
-	if err := cli.NewMoleCommand(streams, version).Execute(); err != nil {
-		os.Exit(1)
-	}
+	os.Exit(cli.Execute(streams, version))
 }

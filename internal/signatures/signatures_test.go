@@ -95,6 +95,42 @@ func TestCrashLoopAttachesLogsAndExitCode(t *testing.T) {
 	}
 }
 
+// TestCrashLoopBetweenCrashes: the diagnosis instant lands while the
+// container is briefly Running between crashes — no waiting state at all.
+// The restart pattern must still be recognized.
+func TestCrashLoopBetweenCrashes(t *testing.T) {
+	p := basePod("a")
+	p.Status.Phase = corev1.PodRunning
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:                 "main",
+		RestartCount:         3,
+		State:                corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 7}},
+	}}
+	f := diagnosePod(emptyCtx(), p)
+	if f == nil || f.Signature != "CrashLoopBackOff" {
+		t.Fatalf("restart pattern between crashes must be detected, got %+v", f)
+	}
+	if !strings.Contains(f.Cause, "exit code 7") {
+		t.Fatalf("cause should carry the exit code, got %q", f.Cause)
+	}
+}
+
+func TestCrashLoopIgnoresRecoveredPod(t *testing.T) {
+	p := basePod("a")
+	p.Status.Phase = corev1.PodRunning
+	p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:                 "main",
+		RestartCount:         3,
+		State:                corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 7}},
+	}}
+	if f := diagnosePod(emptyCtx(), p); f != nil {
+		t.Fatalf("a ready pod with old restarts is not crash-looping, got %+v", f)
+	}
+}
+
 func TestCrashLoopSurvivesDeniedLogs(t *testing.T) {
 	p := basePod("a")
 	p.Status.ContainerStatuses = []corev1.ContainerStatus{{

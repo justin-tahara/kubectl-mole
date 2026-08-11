@@ -7,13 +7,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// detectCrashLoop fires on containers in CrashLoopBackOff, attaching the
-// previous container instance's log tail and exit code — the two things a
-// human would go dig for next.
+// detectCrashLoop fires on crash-looping containers, attaching the previous
+// container instance's log tail and exit code — the two things a human would
+// go dig for next. Crash-looping is a pattern over time: besides the
+// instantaneous CrashLoopBackOff waiting state, the detector recognizes a
+// container observed briefly running between crashes (repeated non-zero
+// exits, pod not ready), so the verdict does not depend on which instant of
+// the backoff cycle the diagnosis lands on.
 func detectCrashLoop(c *Context, pod *corev1.Pod) *Finding {
 	for _, cs := range allContainerStatuses(pod) {
 		w := cs.State.Waiting
-		if w == nil || w.Reason != "CrashLoopBackOff" {
+		crashWaiting := w != nil && w.Reason == "CrashLoopBackOff"
+		last := cs.LastTerminationState.Terminated
+		restarting := cs.RestartCount >= 2 && last != nil && last.ExitCode != 0 && !podIsReady(pod)
+		if !crashWaiting && !restarting {
 			continue
 		}
 		f := &Finding{Signature: "CrashLoopBackOff"}

@@ -8,6 +8,7 @@ package signatures_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -88,9 +89,10 @@ func newDeployment(name string, mut ...func(*appsv1.Deployment)) *appsv1.Deploym
 }
 
 // watchAndDiagnose runs the settle engine (asserting the workload does not
-// settle), then polls Diagnose until the wanted signature appears — pod
-// status flaps between backoff states, so a single instant can miss it.
-func watchAndDiagnose(t *testing.T, cs *kubernetes.Clientset, ns, name, wantSignature string, timeout time.Duration) signatures.Finding {
+// settle), then polls Diagnose until the wanted signature appears and every
+// accept predicate holds — pod status and log availability flap between
+// backoff states, so a single instant can miss either.
+func watchAndDiagnose(t *testing.T, cs *kubernetes.Clientset, ns, name, wantSignature string, timeout time.Duration, accept ...func(signatures.Finding) bool) signatures.Finding {
 	t.Helper()
 	target := settle.Target{Kind: settle.KindDeployment, Namespace: ns, Name: name}
 	res, err := settle.Run(context.Background(), cs, target,
@@ -111,14 +113,29 @@ func watchAndDiagnose(t *testing.T, cs *kubernetes.Clientset, ns, name, wantSign
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		last = signatures.Diagnose(ctx, cs, ref, pods)
 		cancel()
+	scan:
 		for _, f := range last.Findings {
-			if f.Signature == wantSignature {
-				t.Logf("finding: %s: %s (chain %v)", f.Signature, f.Cause, f.Chain)
-				return f
+			if f.Signature != wantSignature {
+				continue
 			}
+			for _, ok := range accept {
+				if !ok(f) {
+					continue scan
+				}
+			}
+			t.Logf("finding: %s: %s (chain %v)", f.Signature, f.Cause, f.Chain)
+			return f
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("no %s finding before deadline; last report: %+v", wantSignature, last)
+			var states []string
+			for _, p := range pods {
+				for _, cs := range p.Status.ContainerStatuses {
+					states = append(states, fmt.Sprintf("%s/%s state=%+v last=%+v restarts=%d",
+						p.Name, cs.Name, cs.State, cs.LastTerminationState, cs.RestartCount))
+				}
+			}
+			t.Fatalf("no %s finding before deadline\npod states: %s\nlast report: %+v",
+				wantSignature, strings.Join(states, "; "), last)
 		}
 		time.Sleep(2 * time.Second)
 	}
@@ -164,18 +181,18 @@ func TestE2ECrashLoopWithLogEvidence(t *testing.T) {
 		d.Spec.Template.Spec.Containers[0].Command = []string{"sh", "-c", "echo MOLE-LOG-MARKER; sleep 1; exit 7"}
 	}))
 
-	f := watchAndDiagnose(t, cs, ns, "crash", "CrashLoopBackOff", 40*time.Second)
+	// Log availability flaps during restart transitions: poll until the
+	// finding carries the previous container's log evidence.
+	f := watchAndDiagnose(t, cs, ns, "crash", "CrashLoopBackOff", 40*time.Second, func(f signatures.Finding) bool {
+		for _, ev := range f.Evidence {
+			if ev.Source == "log" && strings.Contains(ev.Text, "MOLE-LOG-MARKER") {
+				return true
+			}
+		}
+		return false
+	})
 	if !strings.Contains(f.Cause, "exit code 7") {
 		t.Fatalf("cause should carry the exit code, got %q", f.Cause)
-	}
-	foundLog := false
-	for _, ev := range f.Evidence {
-		if ev.Source == "log" && strings.Contains(ev.Text, "MOLE-LOG-MARKER") {
-			foundLog = true
-		}
-	}
-	if !foundLog {
-		t.Fatalf("previous-container log evidence missing: %+v", f.Evidence)
 	}
 }
 

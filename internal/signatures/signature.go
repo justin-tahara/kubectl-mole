@@ -21,6 +21,9 @@ type Finding struct {
 	// Formatters pick the arrow ("->" in text, "→" in JSON).
 	Chain    []string
 	Evidence []Evidence
+	// Pod names the pod a pod-level finding anchors to; empty for
+	// workload-level findings (admission, quota).
+	Pod string
 }
 
 // Context gives detectors read access to observed state. Fetchers return

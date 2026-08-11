@@ -56,6 +56,7 @@ func Diagnose(ctx context.Context, cs kubernetes.Interface, target TargetRef, po
 				continue
 			}
 			f.Chain = d.chain(p)
+			f.Pod = p.Name
 			findings = append(findings, *f)
 			break
 		}

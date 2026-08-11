@@ -166,7 +166,7 @@ func (s *source) selectorPods(sel *metav1.LabelSelector) ([]*corev1.Pod, error) 
 
 func notFoundOr(err error, target Target) error {
 	if apierrors.IsNotFound(err) {
-		return fmt.Errorf("%s not found in namespace %s", target, target.Namespace)
+		return &NotFoundError{Target: target}
 	}
 	return err
 }

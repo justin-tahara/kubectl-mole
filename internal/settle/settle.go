@@ -80,6 +80,13 @@ func Run(parent context.Context, cs kubernetes.Interface, target Target, opts Op
 	}
 	start := time.Now()
 
+	pctx, pcancel := context.WithTimeout(parent, opts.Timeout)
+	err := preflight(pctx, cs, target)
+	pcancel()
+	if err != nil {
+		return Result{}, err
+	}
+
 	factory := informers.NewSharedInformerFactoryWithOptions(cs, 0, informers.WithNamespace(target.Namespace))
 	src, err := newSource(factory, target)
 	if err != nil {

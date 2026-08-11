@@ -170,6 +170,9 @@ than elegance.
 {
   "schemaVersion": "1",
   "status": "failed",
+  "target": "Deployment/api",
+  "namespace": "prod",
+  "reason": "pod api-7f9c-x2k: container main in CrashLoopBackOff",
   "elapsed": "94s",
   "summary": { "total": 47, "ready": 44, "failed": 3 },
   "failures": [

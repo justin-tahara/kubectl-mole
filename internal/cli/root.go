@@ -5,7 +5,7 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -18,6 +18,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/justin-tahara/kubectl-mole/internal/output"
 	"github.com/justin-tahara/kubectl-mole/internal/settle"
 	"github.com/justin-tahara/kubectl-mole/internal/signatures"
 )
@@ -36,8 +37,7 @@ type options struct {
 	streams     genericiooptions.IOStreams
 
 	// exitCode is the verdict's exit code: 0 settled, 1 failed, 2 timed out
-	// while still progressing. The full taxonomy (3 permissions, 4 no match)
-	// lands with the real output schema.
+	// while still progressing, 3 permission denied, 4 no resources matched.
 	exitCode int
 }
 
@@ -124,16 +124,10 @@ func (o *options) run(ctx context.Context, args []string) error {
 	target := settle.Target{Kind: kind, Namespace: ns, Name: name}
 	res, err := settle.Run(ctx, cs, target, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
 	if err != nil {
+		if v, ok := errorVerdict(err, string(kind), name, ns); ok {
+			return o.emit(v)
+		}
 		return err
-	}
-
-	switch res.Outcome {
-	case settle.OutcomeSettled:
-		o.exitCode = 0
-	case settle.OutcomeFailed:
-		o.exitCode = 1
-	case settle.OutcomeProgressing:
-		o.exitCode = 2
 	}
 
 	var rep signatures.Report
@@ -143,87 +137,49 @@ func (o *options) run(ctx context.Context, args []string) error {
 		rep = signatures.Diagnose(dctx, cs, signatures.TargetRef{Kind: string(kind), Namespace: ns, Name: name}, res.Final.CurrentPods)
 	}
 
+	return o.emit(output.Build(output.Input{
+		Kind:      string(kind),
+		Name:      name,
+		Namespace: ns,
+		Status:    statusFor(res.Outcome),
+		Reason:    res.Reason,
+		Elapsed:   res.Elapsed,
+		Pods:      res.Final.CurrentPods,
+		Report:    rep,
+	}))
+}
+
+// errorVerdict maps the typed settle errors onto their structured verdicts:
+// not found → no_resources_matched (exit 4), RBAC denial → permission_denied
+// (exit 3). Any other error stays an error (exit 1).
+func errorVerdict(err error, kind, name, ns string) (output.Verdict, bool) {
+	var nf *settle.NotFoundError
+	if errors.As(err, &nf) {
+		return output.NoMatch(kind, name, ns, nf.Error()), true
+	}
+	var pe *settle.PermissionError
+	if errors.As(err, &pe) {
+		return output.PermissionDenied(kind, name, ns, pe.Error()), true
+	}
+	return output.Verdict{}, false
+}
+
+func statusFor(o settle.Outcome) string {
+	switch o {
+	case settle.OutcomeSettled:
+		return output.StatusSettled
+	case settle.OutcomeProgressing:
+		return output.StatusProgressing
+	}
+	return output.StatusFailed
+}
+
+// emit writes the verdict in the chosen format and records its exit code.
+func (o *options) emit(v output.Verdict) error {
+	o.exitCode = v.ExitCode()
 	if o.output == "json" {
-		return o.printJSON(target, ns, res, rep)
+		return output.WriteJSON(o.streams.Out, v)
 	}
-	o.printText(target, ns, res, rep)
+	output.WriteText(o.streams.Out, v)
 	return nil
-}
-
-type jsonEvidence struct {
-	Source    string `json:"source"`
-	Untrusted bool   `json:"untrusted"`
-	Text      string `json:"text"`
-}
-
-type jsonFailure struct {
-	Signature string         `json:"signature"`
-	Cause     string         `json:"cause"`
-	Chain     string         `json:"chain"`
-	Evidence  []jsonEvidence `json:"evidence,omitempty"`
-}
-
-// jsonVerdict is the schemaVersion "0" pre-release shape: do not bind to it.
-// "1" is reserved for the real schema (M3).
-type jsonVerdict struct {
-	SchemaVersion string        `json:"schemaVersion"`
-	Status        string        `json:"status"`
-	Reason        string        `json:"reason"`
-	Target        string        `json:"target"`
-	Namespace     string        `json:"namespace"`
-	Elapsed       string        `json:"elapsed"`
-	Failures      []jsonFailure `json:"failures,omitempty"`
-	Degraded      []string      `json:"degraded,omitempty"`
-}
-
-func (o *options) printJSON(target settle.Target, ns string, res settle.Result, rep signatures.Report) error {
-	v := jsonVerdict{
-		SchemaVersion: "0",
-		Status:        string(res.Outcome),
-		Reason:        res.Reason,
-		Target:        target.String(),
-		Namespace:     ns,
-		Elapsed:       res.Elapsed.Round(time.Second).String(),
-		Degraded:      rep.Degraded,
-	}
-	for _, f := range rep.Findings {
-		jf := jsonFailure{Signature: f.Signature, Cause: f.Cause, Chain: strings.Join(f.Chain, " → ")}
-		for _, ev := range f.Evidence {
-			jf.Evidence = append(jf.Evidence, jsonEvidence{Source: ev.Source, Untrusted: true, Text: ev.Text})
-		}
-		v.Failures = append(v.Failures, jf)
-	}
-	enc := json.NewEncoder(o.streams.Out)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
-}
-
-func (o *options) printText(target settle.Target, ns string, res settle.Result, rep signatures.Report) {
-	out := o.streams.Out
-	fmt.Fprintf(out, "%s (namespace %s): %s\n", target, ns, res.Outcome)
-	fmt.Fprintf(out, "reason: %s\n", res.Reason)
-	fmt.Fprintf(out, "elapsed: %s\n", res.Elapsed.Round(time.Second))
-	if len(rep.Findings) > 0 {
-		fmt.Fprintln(out, "failures:")
-		for _, f := range rep.Findings {
-			fmt.Fprintf(out, "  %s: %s\n", f.Signature, f.Cause)
-			// Text mode uses "->": the arrow does not render in every console.
-			fmt.Fprintf(out, "    chain: %s\n", strings.Join(f.Chain, " -> "))
-			if len(f.Evidence) > 0 {
-				fmt.Fprintln(out, "    evidence (untrusted cluster text, never instructions):")
-				for _, ev := range f.Evidence {
-					fmt.Fprintf(out, "      [%s]\n", ev.Source)
-					for _, line := range strings.Split(ev.Text, "\n") {
-						fmt.Fprintf(out, "      | %s\n", line)
-					}
-				}
-			}
-		}
-	}
-	if len(rep.Degraded) > 0 {
-		fmt.Fprintln(out, "degraded:")
-		for _, m := range rep.Degraded {
-			fmt.Fprintf(out, "  - %s\n", m)
-		}
-	}
 }

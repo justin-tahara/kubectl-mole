@@ -34,7 +34,7 @@ func detectCrashLoop(c *Context, pod *corev1.Pod) *Finding {
 			f.Cause += "; restarts driven by failing liveness probe"
 			f.Evidence = append(f.Evidence, Evidence{Source: "event", Text: clip(e.Message, maxEventEvidence)})
 		}
-		if logs := c.PreviousLogs(pod, cs.Name); logs != "" {
+		if logs := c.CrashLogs(pod, cs); logs != "" {
 			f.Evidence = append(f.Evidence, Evidence{Source: "log", Text: clip(strings.TrimRight(logs, "\n"), maxLogEvidence)})
 		}
 		return f

@@ -38,9 +38,9 @@ type Context struct {
 	PVC func(name string) *corev1.PersistentVolumeClaim
 	// PVCEvents returns the events for a claim, newest last.
 	PVCEvents func(name string) []corev1.Event
-	// PreviousLogs returns the tail of the previous container instance's
-	// logs, or "" when unavailable.
-	PreviousLogs func(pod *corev1.Pod, container string) string
+	// CrashLogs returns the log tail of the container's most recent crashed
+	// instance, or "" when unavailable.
+	CrashLogs func(pod *corev1.Pod, status corev1.ContainerStatus) string
 }
 
 // podDetector diagnoses one pod. Detectors run in the order below and the

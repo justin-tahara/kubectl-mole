@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
 	"k8s.io/utils/ptr"
 )
 
@@ -26,10 +27,10 @@ func intstrFromInt(i int32) intstr.IntOrString { return intstr.FromInt32(i) }
 // case detectors must survive.
 func emptyCtx() *Context {
 	return &Context{
-		PodEvents:    func(*corev1.Pod) []corev1.Event { return nil },
-		PVC:          func(string) *corev1.PersistentVolumeClaim { return nil },
-		PVCEvents:    func(string) []corev1.Event { return nil },
-		PreviousLogs: func(*corev1.Pod, string) string { return "" },
+		PodEvents: func(*corev1.Pod) []corev1.Event { return nil },
+		PVC:       func(string) *corev1.PersistentVolumeClaim { return nil },
+		PVCEvents: func(string) []corev1.Event { return nil },
+		CrashLogs: func(*corev1.Pod, corev1.ContainerStatus) string { return "" },
 	}
 }
 
@@ -76,7 +77,7 @@ func TestCrashLoopAttachesLogsAndExitCode(t *testing.T) {
 		LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 7}},
 	}}
 	c := emptyCtx()
-	c.PreviousLogs = func(*corev1.Pod, string) string { return "panic: boom\n" }
+	c.CrashLogs = func(*corev1.Pod, corev1.ContainerStatus) string { return "panic: boom\n" }
 	f := diagnosePod(c, p)
 	if f == nil || f.Signature != "CrashLoopBackOff" {
 		t.Fatalf("want CrashLoopBackOff, got %+v", f)
@@ -316,5 +317,57 @@ func TestDiagnoseWiring(t *testing.T) {
 	}
 	if !foundEvent {
 		t.Fatalf("pull event missing from evidence: %+v", f.Evidence)
+	}
+}
+
+func TestKubeletLogErrorFiltered(t *testing.T) {
+	if !kubeletLogError("unable to retrieve container logs for containerd://abc123") {
+		t.Fatal("kubelet error body must be recognized")
+	}
+	if kubeletLogError("app output that mentions container logs") {
+		t.Fatal("workload output must not be filtered")
+	}
+}
+
+// TestCrashLogsInstanceSelection pins which container instance the log fetch
+// targets: the current instance while it sits terminated awaiting restart
+// (its predecessor is typically garbage-collected), the previous instance
+// otherwise.
+func TestCrashLogsInstanceSelection(t *testing.T) {
+	cs := fake.NewClientset()
+	d := &diagnoser{ctx: context.Background(), cs: cs, target: TargetRef{Kind: "Deployment", Namespace: "ns", Name: "x"}}
+	pod := basePod("a")
+
+	terminated := corev1.ContainerStatus{Name: "main",
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 7}}}
+	waiting := corev1.ContainerStatus{Name: "main",
+		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}}
+	running := corev1.ContainerStatus{Name: "main",
+		State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}
+
+	d.crashLogs(pod, terminated)
+	d.crashLogs(pod, waiting)
+	d.crashLogs(pod, running)
+
+	var previous []bool
+	for _, a := range cs.Actions() {
+		g, ok := a.(ktesting.GenericAction)
+		if !ok {
+			continue
+		}
+		opts, ok := g.GetValue().(*corev1.PodLogOptions)
+		if !ok {
+			continue
+		}
+		previous = append(previous, opts.Previous)
+	}
+	want := []bool{false, true, true}
+	if len(previous) != len(want) {
+		t.Fatalf("recorded %d log fetches, want %d", len(previous), len(want))
+	}
+	for i := range want {
+		if previous[i] != want[i] {
+			t.Fatalf("fetch %d: previous=%v, want %v", i, previous[i], want[i])
+		}
 	}
 }

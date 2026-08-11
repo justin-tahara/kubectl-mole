@@ -41,10 +41,10 @@ func Diagnose(ctx context.Context, cs kubernetes.Interface, target TargetRef, po
 	d.loadEvents()
 
 	sc := &Context{
-		PodEvents:    d.podEvents,
-		PVC:          d.pvc,
-		PVCEvents:    d.pvcEvents,
-		PreviousLogs: d.previousLogs,
+		PodEvents: d.podEvents,
+		PVC:       d.pvc,
+		PVCEvents: d.pvcEvents,
+		CrashLogs: d.crashLogs,
 	}
 
 	var findings []Finding
@@ -155,13 +155,20 @@ func (d *diagnoser) pvc(name string) *corev1.PersistentVolumeClaim {
 	return pvc
 }
 
-func (d *diagnoser) previousLogs(pod *corev1.Pod, container string) string {
+// crashLogs fetches the log tail of the container's most recent crashed
+// instance. Which instance that is depends on the observed state: while the
+// container sits terminated awaiting restart, the crash to read is the
+// current instance — its predecessor is typically already garbage-collected
+// (the kubelet retains only one dead container). While it is running or in
+// backoff, the crash lives in the previous instance, and backoff is the one
+// state where the kubelet refuses a non-previous read outright.
+func (d *diagnoser) crashLogs(pod *corev1.Pod, status corev1.ContainerStatus) string {
 	if d.logDenied {
 		return ""
 	}
 	req := d.cs.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
-		Container: container,
-		Previous:  true,
+		Container: status.Name,
+		Previous:  status.State.Terminated == nil,
 		TailLines: ptr.To(int64(20)),
 	})
 	raw, err := req.DoRaw(d.ctx)
@@ -172,7 +179,18 @@ func (d *diagnoser) previousLogs(pod *corev1.Pod, container string) string {
 		}
 		return ""
 	}
-	return string(raw)
+	if body := string(raw); !kubeletLogError(body) {
+		return body
+	}
+	return ""
+}
+
+// kubeletLogError recognizes the message the kubelet writes into a 200 log
+// response when the requested container's logs are gone (rotated away, or
+// the dead container was garbage-collected). It is kubelet text, not
+// workload output, and must never be presented as log evidence.
+func kubeletLogError(body string) bool {
+	return strings.HasPrefix(body, "unable to retrieve container logs for ")
 }
 
 // chain is the ownership walk for one pod. The pod's controller ref supplies

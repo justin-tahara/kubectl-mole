@@ -92,7 +92,7 @@ func TestFleetAcrossNamespaces(t *testing.T) {
 		for _, ns := range []string{ns1, ns2} {
 			dctx, dcancel := context.WithTimeout(context.Background(), 15*time.Second)
 			rep := signatures.Diagnose(dctx, cs,
-				signatures.TargetRef{Kind: "Deployment", Namespace: ns, Name: "api"}, podsOf(t, cs, ns, "api"))
+				signatures.TargetRef{Kind: "Deployment", Namespace: ns, Name: "api"}, podsOf(t, cs, ns, "api"), nil)
 			dcancel()
 			findings = append(findings, rep.Findings...)
 		}

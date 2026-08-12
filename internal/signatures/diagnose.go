@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,10 +34,11 @@ type Report struct {
 }
 
 // Diagnose walks the ownership chain of an unsettled workload and runs the
-// signature catalogue over its current-revision pods. It degrades instead of
+// signature catalogue over its current-revision pods; previous-revision pods
+// (oldPods) are checked only for wedging the rollout. It degrades instead of
 // failing: any denied read is recorded in Report.Degraded and analysis
 // continues on what remains.
-func Diagnose(ctx context.Context, cs kubernetes.Interface, target TargetRef, pods []*corev1.Pod) Report {
+func Diagnose(ctx context.Context, cs kubernetes.Interface, target TargetRef, pods, oldPods []*corev1.Pod) Report {
 	d := &diagnoser{ctx: ctx, cs: cs, target: target}
 	d.loadEvents()
 
@@ -46,26 +48,35 @@ func Diagnose(ctx context.Context, cs kubernetes.Interface, target TargetRef, po
 		PVCEvents: d.pvcEvents,
 		CrashLogs: d.crashLogs,
 		Node:      d.node,
+		Now:       time.Now,
 	}
 
 	var findings []Finding
 	findings = append(findings, d.workloadFindings(sc)...)
 	for _, p := range pods {
-		for _, det := range podDetectors {
-			f := det.detect(sc, p)
-			if f == nil {
-				continue
-			}
-			f.Chain = d.chain(p)
-			f.Pod = p.Name
-			findings = append(findings, *f)
-			break
-		}
+		findings = appendPodFinding(findings, sc, d, p, podDetectors)
+	}
+	for _, p := range oldPods {
+		findings = appendPodFinding(findings, sc, d, p, oldPodDetectors)
 	}
 	for i := range findings {
 		findings[i].Namespace = target.Namespace
 	}
 	return Report{Findings: dedupIdentical(findings), Degraded: d.degraded}
+}
+
+// appendPodFinding runs a detector chain over one pod; the first match wins.
+func appendPodFinding(findings []Finding, sc *Context, d *diagnoser, p *corev1.Pod, detectors []podDetector) []Finding {
+	for _, det := range detectors {
+		f := det.detect(sc, p)
+		if f == nil {
+			continue
+		}
+		f.Chain = d.chain(p)
+		f.Pod = p.Name
+		return append(findings, *f)
+	}
+	return findings
 }
 
 type diagnoser struct {

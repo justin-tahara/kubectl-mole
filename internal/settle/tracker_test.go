@@ -1,6 +1,7 @@
 package settle
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -28,13 +29,17 @@ func mkpod(name, uid string, ready bool, restarts int32) *corev1.Pod {
 }
 
 func mksnap(gen, observed int64, st status.Status, pods []*corev1.Pod, oldPods int) snapshot {
+	var old []*corev1.Pod
+	for i := 0; i < oldPods; i++ {
+		old = append(old, mkpod(fmt.Sprintf("old-%d", i), fmt.Sprintf("old-u%d", i), false, 0))
+	}
 	return snapshot{
 		found:              true,
 		generation:         gen,
 		observedGeneration: observed,
 		kstatus:            kstatusResult{Status: st, Message: "msg"},
 		currentPods:        pods,
-		oldPods:            oldPods,
+		oldPods:            old,
 	}
 }
 

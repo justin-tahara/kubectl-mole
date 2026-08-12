@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -26,6 +27,9 @@ func resourceMustParse(t *testing.T, s string) resource.Quantity {
 
 func intstrFromInt(i int32) intstr.IntOrString { return intstr.FromInt32(i) }
 
+// testNow is the fixed instant test detectors observe.
+var testNow = time.Unix(2_000_000, 0)
+
 // emptyCtx is a Context whose reads all come back empty — the fully degraded
 // case detectors must survive.
 func emptyCtx() *Context {
@@ -35,6 +39,7 @@ func emptyCtx() *Context {
 		PVCEvents: func(string) []corev1.Event { return nil },
 		CrashLogs: func(*corev1.Pod, corev1.ContainerStatus) string { return "" },
 		Node:      func(string) *corev1.Node { return nil },
+		Now:       func() time.Time { return testNow },
 	}
 }
 
@@ -311,7 +316,7 @@ func TestDiagnoseWiring(t *testing.T) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "ns", UID: "dep-uid"}}
 
 	cs := fake.NewSimpleClientset(pod, event, dep)
-	rep := Diagnose(context.Background(), cs, TargetRef{Kind: "Deployment", Namespace: "ns", Name: "api"}, []*corev1.Pod{pod})
+	rep := Diagnose(context.Background(), cs, TargetRef{Kind: "Deployment", Namespace: "ns", Name: "api"}, []*corev1.Pod{pod}, nil)
 
 	if len(rep.Findings) != 1 {
 		t.Fatalf("want 1 finding, got %+v", rep.Findings)
@@ -463,7 +468,7 @@ func TestDiagnoseNodesDenied(t *testing.T) {
 	cs.PrependReactor("get", "nodes", func(ktesting.Action) (bool, runtime.Object, error) {
 		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "nodes"}, "", nil)
 	})
-	rep := Diagnose(context.Background(), cs, TargetRef{Kind: "Deployment", Namespace: "ns", Name: "api"}, []*corev1.Pod{pod})
+	rep := Diagnose(context.Background(), cs, TargetRef{Kind: "Deployment", Namespace: "ns", Name: "api"}, []*corev1.Pod{pod}, nil)
 	if len(rep.Findings) != 1 || rep.Findings[0].Signature != "CrashLoopBackOff" {
 		t.Fatalf("pod symptom must survive node denial, got %+v", rep.Findings)
 	}

@@ -31,10 +31,10 @@ type snapshot struct {
 	// currentPods are the existing pods of the current revision, sorted by
 	// name for deterministic output.
 	currentPods []*corev1.Pod
-	// oldPods counts existing pods that belong to previous revisions
-	// (including pods still terminating, which controllers stop counting
-	// long before they are gone).
-	oldPods int
+	// oldPods are existing pods of previous revisions (including pods still
+	// terminating, which controllers stop counting long before they are
+	// gone), sorted by name.
+	oldPods []*corev1.Pod
 }
 
 // source reads the informer caches needed for one target kind.

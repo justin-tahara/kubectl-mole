@@ -1,6 +1,9 @@
 package signatures
 
 import (
+	"strings"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -46,6 +49,9 @@ type Context struct {
 	CrashLogs func(pod *corev1.Pod, status corev1.ContainerStatus) string
 	// Node fetches a node by name; nil when unreadable or absent.
 	Node func(name string) *corev1.Node
+	// Now is the wall clock, injectable for tests. Only detectors that
+	// judge whether a state has overstayed (stuck terminating) consult it.
+	Now func() time.Time
 }
 
 // podDetector diagnoses one pod. Detectors run in the order below and the
@@ -59,12 +65,27 @@ type podDetector struct {
 
 var podDetectors = []podDetector{
 	{"NodeNotReady", detectNodeNotReady},
+	{"PodStuckTerminating", detectStuckTerminating},
 	{"PVCPending", detectPVCPending},
+	{"PodSandboxFailed", detectSandboxFailed},
+	{"VolumeMountFailed", detectVolumeMountFailed},
 	{"PodUnschedulable", detectUnschedulable},
+	{"PodEvicted", detectEvicted},
 	{"OOMKilled", detectOOMKilled},
+	{"ConfigMissing", detectConfigMissing},
+	{"ContainerStartFailed", detectStartFailed},
 	{"CrashLoopBackOff", detectCrashLoop},
 	{"ImagePullBackOff", detectImagePull},
 	{"ProbeFailing", detectProbeFailing},
+}
+
+// oldPodDetectors run on previous-revision pods. Old pods get exactly one
+// question — are they wedging the rollout? — because their other symptoms
+// are history: the pods are on the way out. A dead node underneath still
+// outranks the finalizer, and folds with current-pod findings on that node.
+var oldPodDetectors = []podDetector{
+	{"NodeNotReady", detectNodeNotReady},
+	{"PodStuckTerminating", detectStuckTerminating},
 }
 
 // allContainerStatuses returns init then regular container statuses.
@@ -86,4 +107,25 @@ func clip(s string, n int) string {
 		return s
 	}
 	return s[:n] + " …(truncated)"
+}
+
+// containerNoun says which kind of container a cause names. Init-container
+// failures read differently — the pod never leaves initialization — so a
+// cause must not present one as an ordinary container.
+func containerNoun(pod *corev1.Pod, name string) string {
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == name {
+			return "init container"
+		}
+	}
+	return "container"
+}
+
+// firstLine bounds multi-line cluster text to its first line for use in a
+// cause; the full text belongs in evidence.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }

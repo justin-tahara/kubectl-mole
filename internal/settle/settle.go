@@ -56,8 +56,10 @@ type Result struct {
 type Observation struct {
 	// CurrentPods are the existing current-revision pods, sorted by name.
 	CurrentPods []*corev1.Pod
-	// OldPods counts previous-revision pods still present.
-	OldPods int
+	// OldPods are previous-revision pods still present, sorted by name.
+	// A rollout is not settled while any exist, and one of them wedged
+	// behind a finalizer is a diagnosable cause.
+	OldPods []*corev1.Pod
 }
 
 // Options tune the watch.

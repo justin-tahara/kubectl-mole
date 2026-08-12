@@ -40,7 +40,11 @@ success is how a typoed namespace ships to prod.
 
 - `failures[].signature` is a stable enum: `ImagePullBackOff`,
   `CrashLoopBackOff`, `PodUnschedulable`, `PVCPending`, `OOMKilled`,
-  `ProbeFailing`, `AdmissionRejected`, `QuotaExceeded`, `NodeNotReady`.
+  `ProbeFailing`, `AdmissionRejected`, `QuotaExceeded`, `NodeNotReady`,
+  `ConfigMissing`, `VolumeMountFailed`, `PodSandboxFailed`,
+  `ContainerStartFailed`, `PodEvicted`, `PodStuckTerminating`.
+- Init-container failures say so in the cause ("init container migrate is
+  crash-looping"); the signature is the mechanism either way.
 - `failures[].chain` is the ownership walk from workload to pod
   (`Deployment/api → ReplicaSet/api-7f9c → Pod/api-7f9c-x2k`).
 - Findings sharing a signature and cause are collapsed into one entry:

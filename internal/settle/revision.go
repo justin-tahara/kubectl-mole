@@ -18,11 +18,13 @@ const (
 
 // splitDeploymentPods separates pods of the deployment's newest ReplicaSet
 // from pods of older ReplicaSets (or with no known owner). Any existing
-// non-current pod — including one that is merely terminating — counts as old.
-func splitDeploymentPods(d *appsv1.Deployment, rsLister appslisters.ReplicaSetLister, pods []*corev1.Pod) ([]*corev1.Pod, int) {
+// non-current pod — including one that is merely terminating — counts as
+// old; the old pods come back as objects because diagnosis needs to see a
+// pod that is wedging the rollout, not just count it.
+func splitDeploymentPods(d *appsv1.Deployment, rsLister appslisters.ReplicaSetLister, pods []*corev1.Pod) ([]*corev1.Pod, []*corev1.Pod) {
 	rss, err := rsLister.ReplicaSets(d.Namespace).List(labels.Everything())
 	if err != nil {
-		return nil, len(pods)
+		return nil, pods
 	}
 	var owned []*appsv1.ReplicaSet
 	for _, rs := range rss {
@@ -31,7 +33,7 @@ func splitDeploymentPods(d *appsv1.Deployment, rsLister appslisters.ReplicaSetLi
 		}
 	}
 	if len(owned) == 0 {
-		return nil, len(pods)
+		return nil, pods
 	}
 	sort.Slice(owned, func(i, j int) bool {
 		ri, rj := rsRevision(owned[i]), rsRevision(owned[j])
@@ -42,13 +44,12 @@ func splitDeploymentPods(d *appsv1.Deployment, rsLister appslisters.ReplicaSetLi
 	})
 	current := owned[len(owned)-1]
 
-	var currentPods []*corev1.Pod
-	old := 0
+	var currentPods, old []*corev1.Pod
 	for _, p := range pods {
 		if ref := metav1.GetControllerOf(p); ref != nil && ref.UID == current.UID {
 			currentPods = append(currentPods, p)
 		} else {
-			old++
+			old = append(old, p)
 		}
 	}
 	return currentPods, old
@@ -64,18 +65,17 @@ func rsRevision(rs *appsv1.ReplicaSet) int64 {
 
 // splitStatefulSetPods separates pods carrying the StatefulSet's update
 // revision from everything else.
-func splitStatefulSetPods(sts *appsv1.StatefulSet, pods []*corev1.Pod) ([]*corev1.Pod, int) {
+func splitStatefulSetPods(sts *appsv1.StatefulSet, pods []*corev1.Pod) ([]*corev1.Pod, []*corev1.Pod) {
 	rev := sts.Status.UpdateRevision
 	if rev == "" {
-		return nil, len(pods)
+		return nil, pods
 	}
-	var current []*corev1.Pod
-	old := 0
+	var current, old []*corev1.Pod
 	for _, p := range pods {
 		if p.Labels[controllerRevisionHashLabel] == rev {
 			current = append(current, p)
 		} else {
-			old++
+			old = append(old, p)
 		}
 	}
 	return current, old
@@ -83,10 +83,10 @@ func splitStatefulSetPods(sts *appsv1.StatefulSet, pods []*corev1.Pod) ([]*corev
 
 // splitDaemonSetPods separates pods carrying the DaemonSet's newest
 // ControllerRevision hash from everything else.
-func splitDaemonSetPods(ds *appsv1.DaemonSet, crLister appslisters.ControllerRevisionLister, pods []*corev1.Pod) ([]*corev1.Pod, int) {
+func splitDaemonSetPods(ds *appsv1.DaemonSet, crLister appslisters.ControllerRevisionLister, pods []*corev1.Pod) ([]*corev1.Pod, []*corev1.Pod) {
 	crs, err := crLister.ControllerRevisions(ds.Namespace).List(labels.Everything())
 	if err != nil {
-		return nil, len(pods)
+		return nil, pods
 	}
 	var newest *appsv1.ControllerRevision
 	for _, cr := range crs {
@@ -99,17 +99,16 @@ func splitDaemonSetPods(ds *appsv1.DaemonSet, crLister appslisters.ControllerRev
 		}
 	}
 	if newest == nil {
-		return nil, len(pods)
+		return nil, pods
 	}
 	hash := newest.Labels[controllerRevisionHashLabel]
 
-	var current []*corev1.Pod
-	old := 0
+	var current, old []*corev1.Pod
 	for _, p := range pods {
 		if hash != "" && p.Labels[controllerRevisionHashLabel] == hash {
 			current = append(current, p)
 		} else {
-			old++
+			old = append(old, p)
 		}
 	}
 	return current, old

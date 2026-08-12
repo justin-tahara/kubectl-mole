@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/utils/ptr"
@@ -112,7 +113,7 @@ func watchAndDiagnose(t *testing.T, cs *kubernetes.Clientset, ns, name, wantSign
 	for {
 		pods := listPods(t, cs, ns, name)
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		last = signatures.Diagnose(ctx, cs, ref, pods)
+		last = signatures.Diagnose(ctx, cs, ref, pods, nil)
 		cancel()
 	scan:
 		for _, f := range last.Findings {
@@ -314,7 +315,7 @@ func TestE2EIdenticalCausesCollapse(t *testing.T) {
 	for {
 		pods := listPods(t, cs, ns, "crashtrio")
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		rep := signatures.Diagnose(ctx, cs, ref, pods)
+		rep := signatures.Diagnose(ctx, cs, ref, pods, nil)
 		cancel()
 		entries = collapse.Collapse(rep.Findings)
 		if len(entries) == 1 && entries[0].Signature == "CrashLoopBackOff" && entries[0].Affected == 3 {
@@ -334,4 +335,136 @@ func TestE2EIdenticalCausesCollapse(t *testing.T) {
 			t.Fatalf("examples must be namespace-qualified pod refs, got %v", e.Examples)
 		}
 	}
+}
+
+func TestE2EConfigMissing(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("cfg", func(d *appsv1.Deployment) {
+		d.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{{
+			Name: "DB_HOST",
+			ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "missing-config"},
+				Key:                  "host",
+			}},
+		}}
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "cfg", "ConfigMissing", 30*time.Second)
+	if !strings.Contains(f.Cause, "missing-config") {
+		t.Fatalf("cause should name the missing ConfigMap, got %q", f.Cause)
+	}
+}
+
+func TestE2EStartFailed(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("noexec", func(d *appsv1.Deployment) {
+		d.Spec.Template.Spec.Containers[0].Command = []string{"/no-such-binary"}
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "noexec", "ContainerStartFailed", 40*time.Second)
+	if !strings.Contains(f.Cause, "no-such-binary") && !strings.Contains(f.Cause, "executable file not found") {
+		t.Fatalf("cause should carry the runtime's exec error, got %q", f.Cause)
+	}
+}
+
+func TestE2EVolumeMountFailed(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("mnt", func(d *appsv1.Deployment) {
+		d.Spec.Template.Spec.Volumes = []corev1.Volume{{
+			Name:         "creds",
+			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "missing-secret"}},
+		}}
+		d.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: "creds", MountPath: "/creds"}}
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "mnt", "VolumeMountFailed", 45*time.Second)
+	if !strings.Contains(f.Cause, "missing-secret") {
+		t.Fatalf("cause should name the missing Secret, got %q", f.Cause)
+	}
+}
+
+func TestE2EEvicted(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("hog", func(d *appsv1.Deployment) {
+		c := &d.Spec.Template.Spec.Containers[0]
+		// Exceed the pod's own ephemeral-storage limit; the kubelet's
+		// eviction manager notices within its ~10s housekeeping interval.
+		c.Command = []string{"sh", "-c", "dd if=/dev/zero of=/tmp/fill bs=1M count=50; sleep 3600"}
+		c.Resources.Limits = corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("5Mi")}
+	}))
+
+	f := watchAndDiagnose(t, cs, ns, "hog", "PodEvicted", 90*time.Second)
+	if !strings.Contains(strings.ToLower(f.Cause), "ephemeral") {
+		t.Fatalf("cause should name the storage limit breach, got %q", f.Cause)
+	}
+}
+
+// TestE2EStuckTerminatingOldPod wedges a rollout the way operators meet it:
+// the old pod carries a finalizer, the new revision comes up fine, and the
+// deployment can never finish. The finding must come from the old-pod path.
+func TestE2EStuckTerminatingOldPod(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("wedge"))
+
+	// Wait for the first revision to come up, then pin its pod.
+	target := settle.Target{Kind: settle.KindDeployment, Namespace: ns, Name: "wedge"}
+	res, err := settle.Run(context.Background(), cs, target, settle.Options{Timeout: 60 * time.Second, StableFor: 3 * time.Second})
+	if err != nil || res.Outcome != settle.OutcomeSettled {
+		t.Fatalf("first revision should settle: outcome=%v err=%v", res.Outcome, err)
+	}
+	pods := listPods(t, cs, ns, "wedge")
+	if len(pods) != 1 {
+		t.Fatalf("want one pod, got %d", len(pods))
+	}
+	pinned := pods[0].Name
+	patch := []byte(`{"metadata":{"finalizers":["mole.example/e2e-block"]}}`)
+	if _, err := cs.CoreV1().Pods(ns).Patch(context.Background(), pinned, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		t.Fatalf("pin pod with finalizer: %v", err)
+	}
+	// Strip the finalizer no matter how the test ends — the namespace cannot
+	// delete while the pod is pinned.
+	t.Cleanup(func() {
+		unpatch := []byte(`{"metadata":{"finalizers":[]}}`)
+		_, _ = cs.CoreV1().Pods(ns).Patch(context.Background(), pinned, types.StrategicMergePatchType, unpatch, metav1.PatchOptions{})
+	})
+
+	// Roll to a new revision; the pinned old pod wedges it.
+	dep, err := cs.AppsV1().Deployments(ns).Get(context.Background(), "wedge", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+	dep.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "REV", Value: "2"}}
+	if _, err := cs.AppsV1().Deployments(ns).Update(context.Background(), dep, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update deployment: %v", err)
+	}
+
+	// The rollout must not settle (grace 2s + 30s slack before the detector
+	// fires, so give the watch room).
+	res, err = settle.Run(context.Background(), cs, target, settle.Options{Timeout: 75 * time.Second, StableFor: 3 * time.Second})
+	if err != nil {
+		t.Fatalf("settle.Run: %v", err)
+	}
+	if res.Outcome == settle.OutcomeSettled {
+		t.Fatal("rollout settled despite the pinned old pod")
+	}
+	if len(res.Final.OldPods) == 0 {
+		t.Fatalf("the pinned pod should surface as an old pod, got %+v", res.Final)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	rep := signatures.Diagnose(ctx, cs, signatures.TargetRef{Kind: "Deployment", Namespace: ns, Name: "wedge"},
+		res.Final.CurrentPods, res.Final.OldPods)
+	for _, f := range rep.Findings {
+		if f.Signature == "PodStuckTerminating" && f.Pod == pinned && strings.Contains(f.Cause, "mole.example/e2e-block") {
+			t.Logf("finding: %s: %s (chain %v)", f.Signature, f.Cause, f.Chain)
+			return
+		}
+	}
+	t.Fatalf("no PodStuckTerminating finding for the pinned old pod; findings: %+v", rep.Findings)
 }

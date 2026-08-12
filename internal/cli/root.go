@@ -161,7 +161,7 @@ func (o *options) run(ctx context.Context, args []string) error {
 	if res.Outcome != settle.OutcomeSettled {
 		dctx, dcancel := context.WithTimeout(ctx, 15*time.Second)
 		defer dcancel()
-		rep = signatures.Diagnose(dctx, cs, signatures.TargetRef{Kind: string(kind), Namespace: ns, Name: name}, res.Final.CurrentPods)
+		rep = signatures.Diagnose(dctx, cs, signatures.TargetRef{Kind: string(kind), Namespace: ns, Name: name}, res.Final.CurrentPods, res.Final.OldPods)
 	}
 
 	return o.emit(output.Build(output.Input{
@@ -250,7 +250,7 @@ func diagnoseFleet(ctx context.Context, cs kubernetes.Interface, results []settl
 			dctx, dcancel := context.WithTimeout(ctx, 15*time.Second)
 			defer dcancel()
 			ref := signatures.TargetRef{Kind: string(tr.Target.Kind), Namespace: tr.Target.Namespace, Name: tr.Target.Name}
-			reports[slot] = signatures.Diagnose(dctx, cs, ref, tr.Result.Final.CurrentPods)
+			reports[slot] = signatures.Diagnose(dctx, cs, ref, tr.Result.Final.CurrentPods, tr.Result.Final.OldPods)
 		}(i, r)
 	}
 	wg.Wait()

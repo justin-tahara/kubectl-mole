@@ -20,7 +20,7 @@ func detectOOMKilled(_ *Context, pod *corev1.Pod) *Finding {
 		}
 		return &Finding{
 			Signature: "OOMKilled",
-			Cause:     fmt.Sprintf("container %s OOMKilled (memory limit %s)", cs.Name, memoryLimit(pod, cs.Name)),
+			Cause:     fmt.Sprintf("%s %s OOMKilled (memory limit %s)", containerNoun(pod, cs.Name), cs.Name, memoryLimit(pod, cs.Name)),
 			Evidence: []Evidence{{
 				Source: "status",
 				Text:   fmt.Sprintf("last termination: reason %s, exit code %d, %d restart(s)", t.Reason, t.ExitCode, cs.RestartCount),

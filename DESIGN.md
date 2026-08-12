@@ -135,6 +135,22 @@ v0 catalogue:
 | `ProbeFailing` | readiness/liveness probe failure events | which probe, endpoint, and status |
 | `AdmissionRejected` | apply/update rejected by webhook | webhook name and rejection message |
 | `QuotaExceeded` | ReplicaSet condition `FailedCreate`, quota reason | which quota, which resource |
+| `NodeNotReady` | pod's node `Ready=False`; runs first — the deeper cause | node name and Ready condition; collapses per node |
+
+v0.2 catalogue (M11, the everyday failure modes):
+
+| Signature | Detection | Evidence to attach |
+|---|---|---|
+| `ConfigMissing` | container waiting, reason `CreateContainerConfigError` | the kubelet message naming the missing ConfigMap/Secret or key |
+| `VolumeMountFailed` | `FailedMount`/`FailedAttachVolume` events on a pod still waiting to start | the mount or attach error, which names the missing object or conflict |
+| `PodSandboxFailed` | `FailedCreatePodSandBox` events on a pod still waiting to start | the CNI or runtime error |
+| `ContainerStartFailed` | terminated/waiting reason `StartError`, `ContainerCannotRun`, `CreateContainerError`, `RunContainerError` | the runtime error (classic case: executable not found) |
+| `PodEvicted` | pod phase `Failed`, status reason `Evicted` | the eviction message: node pressure or ephemeral-storage breach |
+| `PodStuckTerminating` | deletion timestamp past grace + slack with finalizers present; also runs on previous-revision pods | the finalizers and the deletion timestamp |
+
+Init-container failures are attributed as their own class in cause text
+("init container migrate is crash-looping"), not misattributed to ordinary
+containers.
 
 If a signature's detection turns out to be ambiguous in practice, prefer
 emitting a lower-confidence generic verdict over guessing a specific cause.

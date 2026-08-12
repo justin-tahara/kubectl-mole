@@ -18,7 +18,7 @@ func detectImagePull(c *Context, pod *corev1.Pod) *Finding {
 		}
 		f := &Finding{
 			Signature: "ImagePullBackOff",
-			Cause:     fmt.Sprintf("container %s cannot pull image %q", cs.Name, imageFor(pod, cs.Name)),
+			Cause:     fmt.Sprintf("%s %s cannot pull image %q", containerNoun(pod, cs.Name), cs.Name, imageFor(pod, cs.Name)),
 		}
 		auth := authIndicated(w.Message)
 		if w.Message != "" {

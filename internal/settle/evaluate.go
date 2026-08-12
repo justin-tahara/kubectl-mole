@@ -38,8 +38,8 @@ func healthyNow(s snapshot) (bool, string) {
 	// Guard: controllers stop counting terminating pods long before they are
 	// gone, so kstatus can report Current while previous-revision pods still
 	// exist. Settled means the old state is actually gone.
-	if s.oldPods > 0 {
-		return false, fmt.Sprintf("%d pod(s) from previous revisions still present", s.oldPods)
+	if len(s.oldPods) > 0 {
+		return false, fmt.Sprintf("%d pod(s) from previous revisions still present", len(s.oldPods))
 	}
 	for _, p := range s.currentPods {
 		if p.DeletionTimestamp != nil {

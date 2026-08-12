@@ -24,9 +24,9 @@ func detectCrashLoop(c *Context, pod *corev1.Pod) *Finding {
 			continue
 		}
 		f := &Finding{Signature: "CrashLoopBackOff"}
-		f.Cause = fmt.Sprintf("container %s is crash-looping", cs.Name)
+		f.Cause = fmt.Sprintf("%s %s is crash-looping", containerNoun(pod, cs.Name), cs.Name)
 		if t := cs.LastTerminationState.Terminated; t != nil {
-			f.Cause = fmt.Sprintf("container %s is crash-looping (last exit code %d)", cs.Name, t.ExitCode)
+			f.Cause = fmt.Sprintf("%s %s is crash-looping (last exit code %d)", containerNoun(pod, cs.Name), cs.Name, t.ExitCode)
 		}
 		if e := latestEventWhere(c.PodEvents(pod), func(e corev1.Event) bool {
 			return e.Reason == "Unhealthy" && strings.HasPrefix(e.Message, "Liveness")

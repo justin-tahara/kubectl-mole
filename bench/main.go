@@ -130,14 +130,19 @@ func run(kubeContext, molePath, kstatusPath, kstatusVer, outDir, only string, fu
 func runScenario(ctx context.Context, rc *runCtx, cs *kubernetes.Clientset, sc scenario, outDir string) ([]row, error) {
 	f := newFixture(ctx, cs)
 	defer f.teardown()
+	setupStart := time.Now()
 	if err := sc.setup(f); err != nil {
 		return nil, fmt.Errorf("setup: %w", err)
 	}
+	setupDur := time.Since(setupStart)
+	awaitStart := time.Now()
 	if sc.await != nil {
 		if err := sc.await(f); err != nil {
 			return nil, fmt.Errorf("await: %w", err)
 		}
 	}
+	log.Printf("    staged in %s, converged in %s",
+		setupDur.Round(time.Millisecond), time.Since(awaitStart).Round(time.Millisecond))
 
 	// mole first: waiting for the verdict is the tool's own job. The
 	// baselines run afterwards, against the steady failure state — they are

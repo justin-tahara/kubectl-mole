@@ -29,16 +29,31 @@ on:
 permissions:
   contents: read
 
+# A superseded PR push cancels its in-flight runs; main runs always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   bench:
     runs-on: ubuntu-latest
+    env:
+      # Matches the local dev cluster; the M16 bake adds a version matrix.
+      KIND_VERSION: v0.30.0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: helm/kind-action@v1
-        with:
-          cluster_name: mole-bench
-          config: bench/kind.yaml
+      # go install rides the module proxy (retried, cached) instead of a
+      # raw binary download, which has flaked on runner networks.
+      - run: go install sigs.k8s.io/kind@${KIND_VERSION}
+      - name: kind create cluster (retried)
+        run: |
+          for attempt in 1 2 3; do
+            kind create cluster --name mole-bench --config bench/kind.yaml --wait 120s && exit 0
+            echo "kind create cluster failed (attempt ${attempt})"
+            kind delete cluster --name mole-bench || true
+          done
+          exit 1
       - run: make bench-check BENCH_KUBECONFIG="$HOME/.kube/config"

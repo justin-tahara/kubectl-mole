@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A superseded PR push cancels its in-flight runs; main runs always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -28,19 +33,41 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v8
       # Validate the release config on every push, not just at tag time.
-      - uses: goreleaser/goreleaser-action@v6
-        with:
-          args: check
+      # Pinned, checksum-verified curl with retries instead of
+      # goreleaser-action: the action's binary download has no retry and
+      # has flaked on runner network resets.
+      - name: goreleaser check
+        env:
+          GORELEASER_VERSION: v2.17.1
+        run: |
+          tmp="$(mktemp -d)"
+          base="https://github.com/goreleaser/goreleaser/releases/download/${GORELEASER_VERSION}"
+          curl -fsSL --retry 5 --retry-all-errors --output-dir "$tmp" -O "$base/goreleaser_Linux_x86_64.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors --output-dir "$tmp" -O "$base/checksums.txt"
+          (cd "$tmp" && sha256sum --check --ignore-missing checksums.txt)
+          tar -xzf "$tmp/goreleaser_Linux_x86_64.tar.gz" -C "$tmp" goreleaser
+          "$tmp/goreleaser" check
   e2e:
     runs-on: ubuntu-latest
+    env:
+      # Matches the local dev cluster; the M16 bake adds a version matrix.
+      KIND_VERSION: v0.30.0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: helm/kind-action@v1
-        with:
-          cluster_name: mole-ci
+      # go install rides the module proxy (retried, cached) instead of a
+      # raw binary download, which has flaked on runner networks.
+      - run: go install sigs.k8s.io/kind@${KIND_VERSION}
+      - name: kind create cluster (retried)
+        run: |
+          for attempt in 1 2 3; do
+            kind create cluster --name mole-ci --wait 120s && exit 0
+            echo "kind create cluster failed (attempt ${attempt})"
+            kind delete cluster --name mole-ci || true
+          done
+          exit 1
       - run: go test -tags e2e -v -timeout 20m ./...
         env:
           MOLE_E2E_CONTEXT: kind-mole-ci
@@ -51,7 +78,24 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go install github.com/google/go-licenses@latest
+      - run: go install github.com/google/go-licenses@v1.6.0
       - run: go-licenses check ./... --disallowed_types=forbidden,restricted
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: every commit carries a Signed-off-by line
+        run: |
+          missing=0
+          for sha in $(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            if ! git log -1 --format=%B "$sha" | grep -Eq '^Signed-off-by: .+ <.+>$'; then
+              echo "::error::commit ${sha} has no Signed-off-by line — commit with 'git commit -s'"
+              missing=1
+            fi
+          done
+          exit "$missing"
   # The bench growth gate lives in bench.yaml, path-gated to changes that
   # can actually move mole's output.

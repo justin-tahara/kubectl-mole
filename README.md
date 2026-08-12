@@ -9,7 +9,7 @@ structured verdict explaining what happened and — if something failed — why.
 Deterministic, read-only, no LLM. Works in your terminal, your CI, and your
 agent's context window.
 
-**Status: alpha (v0.1.0).** Everything below is implemented, tested
+**Status: alpha (v0.2.0).** Everything below is implemented, tested
 against kind, and released — see [DESIGN.md](DESIGN.md) for the milestone
 order.
 
@@ -108,7 +108,7 @@ with cosign-signed checksums, SPDX SBOMs, and GitHub build provenance.
 There is also a container image:
 
 ```
-docker run --rm ghcr.io/justin-tahara/kubectl-mole:v0.1.0 --help
+docker run --rm ghcr.io/justin-tahara/kubectl-mole:v0.2.0 --help
 ```
 
 Or from source:

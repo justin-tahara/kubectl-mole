@@ -160,7 +160,7 @@ func TestWriteJSONShape(t *testing.T) {
 
 func TestWriteTextFormat(t *testing.T) {
 	var buf bytes.Buffer
-	WriteText(&buf, Build(failedInput()))
+	WriteText(&buf, Build(failedInput()), nil)
 	out := buf.String()
 	if !strings.Contains(out, "chain: Deployment/api -> ReplicaSet/api-7f9c -> Pod/api-7f9c-x2k") {
 		t.Fatalf("text chain must use ->, got:\n%s", out)
@@ -184,7 +184,7 @@ func TestWriteTextFormat(t *testing.T) {
 
 func TestWriteTextErrorVerdict(t *testing.T) {
 	var buf bytes.Buffer
-	WriteText(&buf, NoMatch("Deployment", "api", "prod", "Deployment/api not found in namespace prod"))
+	WriteText(&buf, NoMatch("Deployment", "api", "prod", "Deployment/api not found in namespace prod"), nil)
 	out := buf.String()
 	if !strings.Contains(out, "no_resources_matched") || !strings.Contains(out, "not found") {
 		t.Fatalf("unexpected no-match text:\n%s", out)

@@ -149,7 +149,7 @@ func TestFleetErrorVerdicts(t *testing.T) {
 
 func TestFleetTextRendering(t *testing.T) {
 	var buf bytes.Buffer
-	WriteText(&buf, BuildFleet(fleetInput()))
+	WriteText(&buf, BuildFleet(fleetInput()), nil)
 	text := buf.String()
 	for _, want := range []string{
 		"workloads (all namespaces, selector part-of=platform): failed",

@@ -74,6 +74,9 @@ type Options struct {
 	StableFor time.Duration
 	// Interval between evaluations of the informer caches. Defaults to 1s.
 	Interval time.Duration
+	// Progress, when set, receives the elapsed time and current reason on
+	// every evaluation tick — display only, never part of the verdict.
+	Progress func(elapsed time.Duration, reason string)
 }
 
 // Run watches target until it settles, fails terminally, or opts.Timeout
@@ -127,6 +130,9 @@ func watchLoop(parent, ctx context.Context, snap func() (snapshot, error), opts 
 		}
 		if out, done := tr.observe(time.Now(), s); done {
 			return Result{Outcome: out, Reason: tr.lastReason, Elapsed: time.Since(start), Final: tr.observation()}, nil
+		}
+		if opts.Progress != nil {
+			opts.Progress(time.Since(start), tr.lastReason)
 		}
 		select {
 		case <-ctx.Done():

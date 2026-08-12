@@ -84,6 +84,7 @@ Examples:
 | `-n, --namespace` | current | Namespace |
 | `--max-targets` | 5000 | Fan-out ceiling; a broader selection is refused |
 | `--include-jobs` | off | Add Jobs to the fan-out |
+| `--no-color` | off | Disable styled terminal output (piped output is always plain) |
 | `--qps`, `--burst` | 20, 30 | Client-side API rate limits |
 
 Standard kubeconfig flags (`--context`, `--kubeconfig`, `--namespace`, ...)

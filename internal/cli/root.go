@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -49,6 +51,7 @@ type options struct {
 	allNamespaces bool
 	maxTargets    int
 	includeJobs   bool
+	noColor       bool
 	qps           float32
 	burst         int
 	streams       genericiooptions.IOStreams
@@ -98,6 +101,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "fan out across all namespaces")
 	cmd.Flags().IntVar(&o.maxTargets, "max-targets", settle.DefaultMaxTargets, "refuse a fan-out matching more workloads than this")
 	cmd.Flags().BoolVar(&o.includeJobs, "include-jobs", false, "add Jobs to the fan-out (off by default: batch churn drowns fleet verdicts)")
+	cmd.Flags().BoolVar(&o.noColor, "no-color", false, "disable styled terminal output (piped output is always plain)")
 	cmd.Flags().Float32Var(&o.qps, "qps", 20, "client-side API request rate (queries per second)")
 	cmd.Flags().IntVar(&o.burst, "burst", 30, "client-side API request burst allowance")
 	o.configFlags.AddFlags(cmd.Flags())
@@ -184,7 +188,9 @@ func (o *options) run(ctx context.Context, args []string) error {
 		return o.runCustom(ctx, cs, cfg, typeArg, name, ns)
 	}
 	target := settle.Target{Kind: kind, Namespace: ns, Name: name}
-	res, err := settle.Run(ctx, cs, target, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
+	draw, clearLine := o.digStatus(target.String())
+	res, err := settle.Run(ctx, cs, target, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, Progress: draw})
+	clearLine()
 	if err != nil {
 		if v, ok := errorVerdict(err, string(kind), name, ns); ok {
 			return o.emit(v)
@@ -229,7 +235,9 @@ func (o *options) runCustom(ctx context.Context, cs kubernetes.Interface, cfg *r
 		return fmt.Errorf("build dynamic client: %w", err)
 	}
 
-	res, err := settle.RunCustom(ctx, cs, dyn, gvr, gvk.Kind, ns, name, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
+	draw, clearLine := o.digStatus(gvk.Kind + "/" + name)
+	res, err := settle.RunCustom(ctx, cs, dyn, gvr, gvk.Kind, ns, name, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, Progress: draw})
+	clearLine()
 	if err != nil {
 		if v, ok := errorVerdict(err, gvk.Kind, name, ns); ok {
 			return o.emit(v)
@@ -279,7 +287,9 @@ func validateSelection(args []string, selector string, allNamespaces bool) error
 func (o *options) runFleet(ctx context.Context, cs kubernetes.Interface, ns string) error {
 	scope := settle.Scope{Namespace: ns, Selector: o.selector, MaxTargets: o.maxTargets, IncludeJobs: o.includeJobs}
 	start := time.Now()
-	results, err := settle.RunFleet(ctx, cs, scope, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
+	draw, clearLine := o.digStatus("the fleet")
+	results, err := settle.RunFleet(ctx, cs, scope, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, Progress: draw})
+	clearLine()
 	if err != nil {
 		if v, ok := fleetErrorVerdict(err, ns, o.selector); ok {
 			return o.emit(v)
@@ -400,6 +410,43 @@ func (o *options) emit(v output.Verdict) error {
 	if o.output == "json" {
 		return output.WriteJSON(o.streams.Out, v)
 	}
-	output.WriteText(o.streams.Out, v)
+	output.WriteText(o.streams.Out, v, o.styler())
 	return nil
+}
+
+// styler returns the terminal styler, or nil for plain output. Plain wins
+// whenever anything says so: --no-color, NO_COLOR, or stdout not being a
+// terminal — piped output is always byte-identical plain text.
+func (o *options) styler() *output.Styler {
+	if o.noColor || os.Getenv("NO_COLOR") != "" {
+		return nil
+	}
+	f, ok := o.streams.Out.(*os.File)
+	if !ok {
+		return nil
+	}
+	r := lipgloss.NewRenderer(f)
+	if r.ColorProfile() == termenv.Ascii {
+		return nil
+	}
+	return output.NewStyler(r)
+}
+
+// digStatus returns a progress callback drawing a live status line on
+// stderr, plus its cleanup. Both are no-ops unless stderr is a terminal —
+// the status line is display, never output.
+func (o *options) digStatus(target string) (func(time.Duration, string), func()) {
+	f, ok := o.streams.ErrOut.(*os.File)
+	if !ok || o.noColor || lipgloss.NewRenderer(f).ColorProfile() == termenv.Ascii {
+		return nil, func() {}
+	}
+	draw := func(elapsed time.Duration, reason string) {
+		line := fmt.Sprintf("⛏ digging %s — %s (%s)", target, reason, elapsed.Round(time.Second))
+		if len(line) > 120 {
+			line = line[:117] + "..."
+		}
+		fmt.Fprintf(f, "\r\x1b[K%s", line)
+	}
+	clear := func() { fmt.Fprintf(f, "\r\x1b[K") }
+	return draw, clear
 }

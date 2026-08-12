@@ -191,6 +191,9 @@ func RunFleet(parent context.Context, cs kubernetes.Interface, scope Scope, opts
 		if open == 0 {
 			return fleetResults(watches), nil
 		}
+		if opts.Progress != nil {
+			opts.Progress(time.Since(start), fmt.Sprintf("%d/%d targets still open", open, len(watches)))
+		}
 		select {
 		case <-ctx.Done():
 			if parent.Err() != nil {

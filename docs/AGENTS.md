@@ -153,6 +153,7 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | `-A, --all-namespaces` | `false` | Fan out across all namespaces. |
 | `--max-targets` | `5000` | Fan-out ceiling; a broader selection is refused. |
 | `--include-jobs` | off | Add Jobs to the fan-out (batch churn drowns fleet verdicts otherwise). |
+| `--no-color` | off | Disable styled terminal output. Irrelevant to machines: piped output is always plain, byte-identical to what a terminal shows minus the escape codes, and `-o json` never styles. |
 | `--qps` / `--burst` | `20` / `30` | Client-side API rate limits; raise for very large fan-outs. |
 
 Even unbudgeted output stays compact: evidence is clipped per item and every

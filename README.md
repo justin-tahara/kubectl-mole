@@ -28,7 +28,10 @@ into one command with a definite answer and a meaningful exit code.
 - **Settle detection that doesn't lie.** A stability window catches the pod
   that goes Ready and crashes 40 seconds later; observedGeneration guards
   against reading the previous rollout's status; old pods must actually be
-  gone.
+  gone. And a failure that stays wedged — an image that cannot pull, a
+  crash loop, a missing ConfigMap — is declared after `--wedged-for`
+  (default 30s) of accumulated evidence instead of at the timeout: the
+  same verdict the deadline would give, sooner.
 - **Exit codes automation can act on.** `2` (still progressing) is not `1`
   (failed) — conflating them is how automation rolls back a deployment that
   was 30 seconds from healthy. `4` (nothing matched) is not `0` — kubectl

@@ -455,7 +455,14 @@ one verb, read-only, no LLM, informers only, deterministic output.
   `NO_COLOR` is set, or with `--no-color`. JSON output does not change at
   all; goldens cover both text modes. Determinism is the constraint the
   styling must prove, not a casualty of it.
-- **M15** — production bake: a kind version matrix in CI (oldest to
+- **M15** — docs and community readiness: every Markdown file audited
+  against what the tool actually does today (README, DESIGN, AGENTS,
+  bench docs); contribution surface opened up — CONTRIBUTING.md, issue
+  and PR templates, branch protection on main with required CI checks
+  and a PR-based flow (which the maintainers then follow too), and
+  retries or tolerance for the CI network flakes that direct pushes
+  currently absorb by rerun.
+- **M16** — production bake: a kind version matrix in CI (oldest to
   newest supported minor), a recorded-fixture corpus of real-world
   failures replayed through the detectors, a dogfood checklist run
   against live clusters, and RBAC verification against the shipped

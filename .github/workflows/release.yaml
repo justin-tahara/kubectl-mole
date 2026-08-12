@@ -11,6 +11,8 @@ permissions:
   packages: write
   # Keyless cosign signing via GitHub OIDC.
   id-token: write
+  # Build-provenance attestations.
+  attestations: write
 
 jobs:
   release:
@@ -32,8 +34,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: sigstore/cosign-installer@v3
+      # syft generates the per-archive SBOMs goreleaser attaches.
+      - uses: anchore/sbom-action/download-syft@v0
       - uses: goreleaser/goreleaser-action@v6
         with:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Provenance for every artifact listed in checksums.txt; verify with
+      # `gh attestation verify <file> --repo justin-tahara/kubectl-mole`.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-checksums: dist/checksums.txt

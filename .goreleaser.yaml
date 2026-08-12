@@ -36,6 +36,10 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# One SPDX SBOM per archive (syft), uploaded with the release.
+sboms:
+  - artifacts: archive
+
 # Keyless cosign signature over the checksum file; the workflow provides the
 # OIDC identity (id-token: write).
 signs:
@@ -106,3 +110,9 @@ release:
     ```
 
     Container image: `ghcr.io/justin-tahara/kubectl-mole:{{ .Tag }}` (also signed with cosign).
+
+    Every artifact also carries GitHub build provenance and an SPDX SBOM:
+
+    ```
+    gh attestation verify <downloaded-file> --repo justin-tahara/kubectl-mole
+    ```

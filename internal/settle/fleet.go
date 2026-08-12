@@ -15,6 +15,8 @@ import (
 	appslisters "k8s.io/client-go/listers/apps/v1"
 	batchlisters "k8s.io/client-go/listers/batch/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
+
+	"github.com/justin-tahara/kubectl-mole/internal/perf"
 )
 
 // DefaultMaxTargets is the fleet-size ceiling when the caller does not set
@@ -137,10 +139,12 @@ func RunFleet(parent context.Context, cs kubernetes.Interface, scope Scope, opts
 	start := time.Now()
 
 	pctx, pcancel := context.WithTimeout(parent, opts.Timeout)
+	stopPreflight := perf.Phase("preflight")
 	targets, err := Discover(pctx, cs, scope)
 	if err == nil {
 		err = fleetPreflight(pctx, cs, scope.Namespace, targets)
 	}
+	stopPreflight()
 	pcancel()
 	if err != nil {
 		return nil, err
@@ -159,15 +163,19 @@ func RunFleet(parent context.Context, cs kubernetes.Interface, scope Scope, opts
 	defer rf.Shutdown()
 	ctx, cancel := context.WithTimeout(parent, opts.Timeout)
 	defer cancel()
+	stopSync := perf.Phase("sync")
 	wf.Start(ctx.Done())
 	rf.Start(ctx.Done())
 	for _, f := range []informers.SharedInformerFactory{wf, rf} {
 		for _, ok := range f.WaitForCacheSync(ctx.Done()) {
 			if !ok {
+				stopSync()
 				return nil, fmt.Errorf("timed out syncing informer caches")
 			}
 		}
 	}
+	stopSync()
+	defer perf.Phase("watch")()
 
 	watches := make([]*fleetWatch, len(targets))
 	for i, tgt := range targets {

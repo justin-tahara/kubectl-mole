@@ -8,6 +8,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/justin-tahara/kubectl-mole/internal/perf"
 )
 
 // Kind is a workload kind the settle engine understands.
@@ -89,7 +91,9 @@ func Run(parent context.Context, cs kubernetes.Interface, target Target, opts Op
 	start := time.Now()
 
 	pctx, pcancel := context.WithTimeout(parent, opts.Timeout)
+	stopPreflight := perf.Phase("preflight")
 	err := preflight(pctx, cs, target)
+	stopPreflight()
 	pcancel()
 	if err != nil {
 		return Result{}, err
@@ -106,12 +110,15 @@ func Run(parent context.Context, cs kubernetes.Interface, target Target, opts Op
 	defer factory.Shutdown()
 	ctx, cancel := context.WithTimeout(parent, opts.Timeout)
 	defer cancel()
+	stopSync := perf.Phase("sync")
 	factory.Start(ctx.Done())
 	for _, ok := range factory.WaitForCacheSync(ctx.Done()) {
 		if !ok {
+			stopSync()
 			return Result{}, fmt.Errorf("timed out syncing informer caches for %s", target)
 		}
 	}
+	stopSync()
 
 	return watchLoop(parent, ctx, src.snapshot, opts, start)
 }
@@ -120,6 +127,7 @@ func Run(parent context.Context, cs kubernetes.Interface, target Target, opts Op
 // done or the context times out. Shared by the typed and dynamic paths so
 // their settle semantics cannot drift.
 func watchLoop(parent, ctx context.Context, snap func() (snapshot, error), opts Options, start time.Time) (Result, error) {
+	defer perf.Phase("watch")()
 	tr := newTracker(opts)
 	ticker := time.NewTicker(opts.Interval)
 	defer ticker.Stop()

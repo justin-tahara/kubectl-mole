@@ -160,6 +160,33 @@ func (f *fixture) waitPodsReady(ns, app string, want int, timeout time.Duration)
 	}
 }
 
+// awaitFleetObserved waits until the deployment controller has observed
+// every fleet deployment at least once — the point where a quiet fleet can
+// settle. Large fleets queue behind the controller's own rate limits, and
+// the bench measures the converged state, not the controller's backlog.
+func (f *fixture) awaitFleetObserved(selector string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		list, err := f.cs.AppsV1().Deployments("").List(f.ctx, metav1.ListOptions{LabelSelector: selector})
+		if err != nil {
+			return err
+		}
+		pending := 0
+		for i := range list.Items {
+			if list.Items[i].Status.ObservedGeneration < list.Items[i].Generation {
+				pending++
+			}
+		}
+		if pending == 0 && len(list.Items) > 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%d of %d fleet deployments still unobserved after %s", pending, len(list.Items), timeout)
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
 // workerNode picks the first (by name) non-control-plane node. The bench
 // cluster config provides two workers for the node scenarios.
 func (f *fixture) workerNode() (string, error) {

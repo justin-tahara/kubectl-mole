@@ -191,8 +191,10 @@ const signatureNames = `imagepullbackoff|crashloopbackoff|podunschedulable|pvcpe
 func pertinentRes(f *fixture, sc scenario) ([]*regexp.Regexp, error) {
 	patterns := append([]string{signatureNames}, sc.pertinent...)
 	patterns = append(patterns, sc.truth...)
-	for _, term := range f.pertinent {
-		patterns = append(patterns, regexp.QuoteMeta(term))
+	if !sc.fleetGeneric {
+		for _, term := range f.pertinent {
+			patterns = append(patterns, regexp.QuoteMeta(term))
+		}
 	}
 	for _, key := range []string{"$POD", "$NODE"} {
 		if v, ok := f.vars[key]; ok {

@@ -28,7 +28,10 @@ type scenario struct {
 	// pertinent are extra density-matcher regexes beyond the auto-added
 	// workload and pod names.
 	pertinent []string
-	setup     func(f *fixture) error
+	// fleetGeneric drops workload names from the density matcher: when the
+	// whole fleet shares one name, it identifies nothing.
+	fleetGeneric bool
+	setup        func(f *fixture) error
 	// await blocks until the failure is externally visible before any tool
 	// runs (e.g. the node marked NotReady); most scenarios rely on mole's own
 	// watch instead.
@@ -457,22 +460,17 @@ func fanout(name string, n int, full bool) scenario {
 		name:  name,
 		full:  full,
 		truth: []string{`crashloop|crash-looping`},
+		// The whole fleet shares the workload name "app" — realistic for
+		// stamped-out tenants, but useless for telling failing from healthy —
+		// so density falls back to pod-level terms.
+		fleetGeneric: true,
 		setup: func(f *fixture) error {
 			f.vars["$FLEETSEL"] = "bench-fleet=" + f.run
 			label := func(d *appsv1.Deployment) {
 				d.Labels["bench-fleet"] = f.run
 			}
-			for i := 0; i < n-3; i++ {
-				ns, err := f.namespace("", nil)
-				if err != nil {
-					return err
-				}
-				if err := f.deployment(ns, "app", label, func(d *appsv1.Deployment) {
-					d.Spec.Replicas = ptr.To(int32(0))
-				}); err != nil {
-					return err
-				}
-			}
+			// Crashers first: the controller works its queue in order, and
+			// the failure must exist long before the quiet tail is done.
 			for i := 0; i < 3; i++ {
 				key := ""
 				if i == 0 {
@@ -488,7 +486,29 @@ func fanout(name string, n int, full bool) scenario {
 					return err
 				}
 			}
+			for i := 0; i < n-3; i++ {
+				ns, err := f.namespace("", nil)
+				if err != nil {
+					return err
+				}
+				if err := f.deployment(ns, "app", label, func(d *appsv1.Deployment) {
+					d.Spec.Replicas = ptr.To(int32(0))
+				}); err != nil {
+					return err
+				}
+			}
 			return nil
+		},
+		// The scenario is a converged fleet with three crashers, not a race
+		// against the controller's own queue: at 5000 deployments the
+		// controller (default 20 QPS) needs minutes to create ReplicaSets.
+		// Every tool measures against the converged state.
+		await: func(f *fixture) error {
+			if err := f.awaitFleetObserved("bench-fleet="+f.run, 10*time.Minute); err != nil {
+				return err
+			}
+			_, err := f.failingPod("$NSFAIL", "app")
+			return err
 		},
 		podNS: "$NSFAIL", podApp: "app",
 		moleArgs: []string{"-A", "-l", "$FLEETSEL"}, moleTimeout: timeout,

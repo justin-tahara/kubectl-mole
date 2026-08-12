@@ -6,10 +6,12 @@ import (
 	"github.com/justin-tahara/kubectl-mole/internal/output"
 )
 
-// charsPerToken is the deliberately tokenizer-free estimate: roughly four
-// characters per token. --budget is approximate and advisory, and documented
-// as such.
-const charsPerToken = 4
+// charsPerToken is the deliberately tokenizer-free estimate. The verdict's
+// JSON tokenizes at ~2.9 characters per token against o200k_base (measured
+// in bench/ — keys, punctuation, and hashes tokenize densely); 3 keeps the
+// estimate slightly conservative, so a budget is a ceiling, not a hope.
+// --budget stays approximate and advisory, and is documented as such.
+const charsPerToken = 3
 
 // Tokens estimates the verdict's output cost, measured over the indented
 // JSON encoding the CLI emits.

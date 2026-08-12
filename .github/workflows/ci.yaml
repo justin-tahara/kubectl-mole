@@ -49,3 +49,18 @@ jobs:
           go-version-file: go.mod
       - run: go install github.com/google/go-licenses@latest
       - run: go-licenses check ./... --disallowed_types=forbidden,restricted
+  # bench re-measures mole's output on the small corpus and fails if any
+  # scenario grew beyond the committed results.csv threshold: silent output
+  # growth is a regression in the product's headline claim.
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: mole-bench
+          config: bench/kind.yaml
+      - run: make bench-check BENCH_KUBECONFIG="$HOME/.kube/config"

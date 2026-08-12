@@ -51,6 +51,13 @@ func (m measurement) wall() time.Duration {
 	return d
 }
 
+// estTokens mirrors mole's own budget estimate (internal/budget): ~3
+// characters per token, tokenizer-free. The bench publishes its error
+// against the real tokenizer.
+func estTokens(bytes int) int {
+	return (bytes + 2) / 3
+}
+
 // runCtx holds what every tool invocation needs.
 type runCtx struct {
 	kubeContext string

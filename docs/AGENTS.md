@@ -119,7 +119,7 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | Flag | Default | Note |
 |---|---|---|
 | `-o json` | `text` | Always set this. |
-| `--budget` | `0` (unlimited) | Approximate output token budget (~4 chars/token, advisory). 600–1000 works well. |
+| `--budget` | `0` (unlimited) | Approximate output token budget (~3 chars/token, advisory). 600–1000 works well. |
 | `--timeout` | `2m` | Wall-clock budget for the watch. Slow-starting apps deserve more. |
 | `--stable-for` | `15s` | How long healthy must hold continuously. Raise it for apps that crash late. |
 | `-l, --selector` | | Fan out over the workloads matching a label selector. |

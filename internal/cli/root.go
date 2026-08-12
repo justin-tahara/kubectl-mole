@@ -85,7 +85,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "output format: text or json")
 	cmd.Flags().DurationVar(&o.timeout, "timeout", 2*time.Minute, "max wall-clock time to wait for settle")
 	cmd.Flags().DurationVar(&o.stableFor, "stable-for", 15*time.Second, "how long a healthy state must hold before it counts as settled")
-	cmd.Flags().IntVar(&o.budget, "budget", 0, "approximate token budget for output; 0 = unlimited (advisory, ~4 chars/token)")
+	cmd.Flags().IntVar(&o.budget, "budget", 0, "approximate token budget for output; 0 = unlimited (advisory, ~3 chars/token)")
 	cmd.Flags().StringVarP(&o.selector, "selector", "l", "", "label selector for fan-out over workloads (instead of TYPE/NAME)")
 	cmd.Flags().BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "fan out across all namespaces")
 	cmd.Flags().IntVar(&o.maxTargets, "max-targets", settle.DefaultMaxTargets, "refuse a fan-out matching more workloads than this")

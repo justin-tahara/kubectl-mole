@@ -169,7 +169,7 @@ func runScenario(ctx context.Context, rc *runCtx, cs *kubernetes.Clientset, sc s
 			}
 		}
 		if m.tool == "mole" {
-			est := (m.bytes() + 3) / 4
+			est := estTokens(m.bytes())
 			r.EstTokens = strconv.Itoa(est)
 			if r.Tokens > 0 {
 				errPct := (float64(est) - float64(r.Tokens)) / float64(r.Tokens) * 100

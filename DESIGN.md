@@ -271,7 +271,8 @@ Ranking rules for Tier 2:
 2. **Prefer terminal over transient** — `ImagePullBackOff` outranks the three
    `Pulling` events that preceded it.
 
-Counting: estimate at ~4 characters per token, with no tokenizer dependency.
+Counting: a characters-per-token estimate with no tokenizer dependency — ~3
+for the JSON the tool emits, measured against `o200k_base` in `bench/`.
 `--budget` is approximate and advisory, and documented as such.
 
 ## Environment compatibility
@@ -338,8 +339,8 @@ bytes, output tokens (`tiktoken` `o200k_base` as reference, raw bytes always
 published alongside), tool invocations to reach the answer, wall-clock time to
 verdict, whether the output contains the ground-truth cause, and signal
 density (fraction of output tokens pertaining to the failure rather than to
-healthy resources). The error rate of the tool's own ~4 chars/token estimate
-against the real tokenizer is also reported.
+healthy resources). The error rate of the tool's own chars-per-token
+estimate against the real tokenizer is also reported.
 
 Baselines: naive kubectl (`get all -o yaml`, `describe`, `logs`), expert
 kubectl (the minimal hand-tuned sequence a good SRE would run — the honest

@@ -460,7 +460,7 @@ func fanout(name string, n int, full bool) scenario {
 		setup: func(f *fixture) error {
 			f.vars["$FLEETSEL"] = "bench-fleet=" + f.run
 			label := func(d *appsv1.Deployment) {
-				d.ObjectMeta.Labels["bench-fleet"] = f.run
+				d.Labels["bench-fleet"] = f.run
 			}
 			for i := 0; i < n-3; i++ {
 				ns, err := f.namespace("", nil)

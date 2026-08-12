@@ -1,0 +1,44 @@
+name: bench
+
+# The growth gate re-measures mole's output on the default corpus and fails
+# if any scenario grew beyond the committed results.csv threshold: silent
+# output growth is a regression in the product's headline claim. It is the
+# slowest job by far, so it only runs when a change could actually move
+# mole's output — code, the harness, or the committed baselines.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "bench/**"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - ".github/workflows/bench.yaml"
+  pull_request:
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "bench/**"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - ".github/workflows/bench.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: mole-bench
+          config: bench/kind.yaml
+      - run: make bench-check BENCH_KUBECONFIG="$HOME/.kube/config"

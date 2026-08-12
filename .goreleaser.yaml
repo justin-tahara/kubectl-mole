@@ -1,4 +1,5 @@
-# Signing, SBOM, and provenance land at M9 (see DESIGN.md).
+# Release pipeline (M9). Run by .github/workflows/release.yaml on tag push;
+# test locally with `make snapshot`.
 version: 2
 
 project_name: kubectl-mole
@@ -8,16 +9,26 @@ builds:
     binary: kubectl-mole
     env:
       - CGO_ENABLED=0
-    goos: [darwin, linux, windows]
-    goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w -X main.version=v{{ .Version }}
+    # Reproducible builds: stamp the commit time, not the build time.
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
+# Archive names follow the krew-release-bot template
+# ({name}_{tag}_{os}_{arch}.tar.gz) so the M10 krew manifest can point at
+# these artifacts without renaming.
 archives:
-  - formats: [tar.gz]
+  - name_template: "{{ .ProjectName }}_v{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
@@ -25,5 +36,73 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Keyless cosign signature over the checksum file; the workflow provides the
+# OIDC identity (id-token: write).
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - --output-signature=${signature}
+      - --output-certificate=${certificate}
+      - ${artifact}
+      - --yes
+    artifacts: checksum
+
+# One multi-platform buildx build; goreleaser lays the prebuilt binaries out
+# per platform in the context and the Dockerfile picks by TARGETPLATFORM.
+dockers_v2:
+  - images:
+      - ghcr.io/justin-tahara/kubectl-mole
+    tags:
+      - "v{{ .Version }}"
+      - latest
+    dockerfile: Dockerfile
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: "Watch Kubernetes workloads until they settle, then explain what broke"
+      org.opencontainers.image.source: "https://github.com/justin-tahara/kubectl-mole"
+      org.opencontainers.image.version: "v{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: "Apache-2.0"
+
+# Keyless cosign over the pushed multi-arch image (default artifacts filter
+# is the dockers_v2 output).
+docker_signs:
+  - cmd: cosign
+    args:
+      - sign
+      - ${artifact}@${digest}
+      - --yes
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-dev"
+
 changelog:
-  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+
+release:
+  prerelease: auto
+  footer: |
+    ### Verify the checksums signature
+
+    The `checksums.txt` file is signed with cosign (keyless, GitHub OIDC):
+
+    ```
+    cosign verify-blob \
+      --certificate checksums.txt.pem \
+      --signature checksums.txt.sig \
+      --certificate-identity-regexp 'https://github.com/justin-tahara/kubectl-mole/\.github/workflows/release\.yaml@.*' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      checksums.txt
+    ```
+
+    Container image: `ghcr.io/justin-tahara/kubectl-mole:{{ .Tag }}` (also signed with cosign).

@@ -8,7 +8,7 @@ BENCH_KUBECONFIG := $(CURDIR)/.kube/bench-config
 KSTATUS_VERSION := v0.7.24
 
 .PHONY: build test vet lint clean kind-up kind-down e2e \
-	bench bench-run bench-up bench-down bench-check demo
+	bench bench-run bench-up bench-down bench-check demo snapshot
 
 build:
 	go build -o bin/$(BINARY) ./cmd/kubectl-mole
@@ -69,6 +69,11 @@ bench-check: build bin/kubectl-status
 	KUBECONFIG=$(BENCH_KUBECONFIG) go run ./bench --context kind-$(BENCH_CLUSTER) \
 		--mole bin/$(BINARY) --kubectl-status bin/kubectl-status \
 		--kubectl-status-version $(KSTATUS_VERSION) --out bench --check $(BENCH_ARGS)
+
+# snapshot exercises the release pipeline locally: all platform binaries,
+# archives, checksums, and container images, unsigned and unpublished.
+snapshot:
+	goreleaser release --snapshot --clean --skip=sign
 
 # demo re-records assets/demo.gif against the mole-dev cluster (needs vhs).
 demo: build

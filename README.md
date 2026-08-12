@@ -9,9 +9,10 @@ structured verdict explaining what happened and — if something failed — why.
 Deterministic, read-only, no LLM. Works in your terminal, your CI, and your
 agent's context window.
 
-**Status: pre-alpha (M8).** Everything below is implemented and tested
-against kind; release binaries and krew packaging are next — see
-[DESIGN.md](DESIGN.md) for the milestone order.
+**Status: pre-alpha (M9).** Everything below is implemented and tested
+against kind; the release pipeline is in place, and the first tagged
+release plus krew packaging (M10) are next — see [DESIGN.md](DESIGN.md)
+for the milestone order.
 
 ![demo: kubectl mole diagnosing a crash-looping deployment](assets/demo.gif)
 
@@ -73,9 +74,12 @@ failures.
 go install github.com/justin-tahara/kubectl-mole/cmd/kubectl-mole@latest
 ```
 
-Put the binary on your `PATH` and `kubectl mole` works as a plugin. Krew and
-release binaries come with M9–M10. RBAC for the read access mole needs ships
-in [deploy/rbac.yaml](deploy/rbac.yaml).
+Put the binary on your `PATH` and `kubectl mole` works as a plugin. On each
+tag the release pipeline publishes binaries for all platforms, cosign-signed
+checksums, and a container image
+(`ghcr.io/justin-tahara/kubectl-mole`); krew packaging comes with M10. RBAC
+for the read access mole needs ships in
+[deploy/rbac.yaml](deploy/rbac.yaml).
 
 ## Use
 

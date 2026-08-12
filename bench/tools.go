@@ -2,28 +2,36 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pkoukk/tiktoken-go"
+
+	"github.com/justin-tahara/kubectl-mole/internal/perf"
 )
 
 // invocation is one command run and what came back. Output is stdout and
 // stderr combined: an error message is output the consumer has to read too.
 type invocation struct {
-	argv []string
-	out  []byte
-	dur  time.Duration
+	argv     []string
+	out      []byte
+	dur      time.Duration
+	maxRSSKB int64
 }
 
 // measurement is one tool's complete attempt at a scenario.
 type measurement struct {
 	tool string
 	invs []invocation
+	// metrics is mole's self-measurement (phase times, API request counts);
+	// nil for the baselines, which cannot be instrumented.
+	metrics *perf.Metrics
 }
 
 func (m measurement) combined() string {
@@ -51,6 +59,18 @@ func (m measurement) wall() time.Duration {
 	return d
 }
 
+// maxRSS is the peak resident set across the tool's invocations, in KiB.
+// Invocations run sequentially, so the sequence's peak is the largest one.
+func (m measurement) maxRSS() int64 {
+	var peak int64
+	for _, inv := range m.invs {
+		if inv.maxRSSKB > peak {
+			peak = inv.maxRSSKB
+		}
+	}
+	return peak
+}
+
 // estTokens mirrors mole's own budget estimate (internal/budget): ~3
 // characters per token, tokenizer-free. The bench publishes its error
 // against the real tokenizer.
@@ -67,23 +87,47 @@ type runCtx struct {
 }
 
 // execOne runs a command to completion with a hard ceiling, measuring wall
-// clock and capturing combined output. A failing command is a valid
+// clock, peak RSS, and combined output. A failing command is a valid
 // measurement: its error text is what the consumer would have to read.
-func execOne(argv []string) invocation {
+func execOne(argv []string, extraEnv ...string) invocation {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 	out, _ := cmd.CombinedOutput()
-	return invocation{argv: argv, out: out, dur: time.Since(start)}
+	return invocation{argv: argv, out: out, dur: time.Since(start), maxRSSKB: maxRSSKB(cmd)}
 }
 
 // mole runs the tool under test: one invocation, JSON output, its own watch.
+// MOLE_METRICS_FILE asks the binary for its self-measurement — a side
+// channel, never part of the measured output.
 func (rc *runCtx) mole(args []string, timeout time.Duration) measurement {
 	argv := append([]string{rc.molePath}, args...)
 	argv = append(argv, "-o", "json", "--stable-for", "5s",
 		"--timeout", timeout.String(), "--context", rc.kubeContext)
-	return measurement{tool: "mole", invs: []invocation{execOne(argv)}}
+	mf, err := os.CreateTemp("", "mole-metrics-*.json")
+	if err != nil {
+		return measurement{tool: "mole", invs: []invocation{execOne(argv)}}
+	}
+	mf.Close()
+	defer os.Remove(mf.Name())
+	m := measurement{tool: "mole", invs: []invocation{execOne(argv, perf.EnvFile+"="+mf.Name())}}
+	if b, err := os.ReadFile(mf.Name()); err == nil && len(b) > 0 {
+		var pm perf.Metrics
+		if json.Unmarshal(b, &pm) == nil {
+			m.metrics = &pm
+		}
+	}
+	return m
+}
+
+// msPhase renders one self-measured phase duration in milliseconds; a phase
+// that never ran reads "0".
+func msPhase(m *perf.Metrics, name string) string {
+	return strconv.FormatInt(m.PhasesMs[name], 10)
 }
 
 func (rc *runCtx) kubectlSeq(tool string, seq [][]string) measurement {

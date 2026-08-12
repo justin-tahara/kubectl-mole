@@ -179,6 +179,7 @@ func runScenario(ctx context.Context, rc *runCtx, cs *kubernetes.Clientset, sc s
 			Bytes:       m.bytes(),
 			Tokens:      rc.tokens(out),
 			WallMS:      m.wall().Milliseconds(),
+			MaxRSSKB:    m.maxRSS(),
 		}
 		if len(sc.truth) > 0 {
 			r.Truth = "no"
@@ -196,9 +197,17 @@ func runScenario(ctx context.Context, rc *runCtx, cs *kubernetes.Clientset, sc s
 				errPct := (float64(est) - float64(r.Tokens)) / float64(r.Tokens) * 100
 				r.EstErrPct = strconv.FormatFloat(round1(errPct), 'f', 1, 64)
 			}
+			if m.metrics != nil {
+				r.APIRequests = strconv.FormatInt(m.metrics.APIRequests, 10)
+				r.PreflightMS = msPhase(m.metrics, "preflight")
+				r.SyncMS = msPhase(m.metrics, "sync")
+				r.WatchMS = msPhase(m.metrics, "watch")
+				r.DiagnoseMS = msPhase(m.metrics, "diagnose")
+				r.EmitMS = msPhase(m.metrics, "emit")
+			}
 		}
-		log.Printf("    %-16s %2d inv  %8d B  %7d tok  %6d ms  truth=%s density=%s",
-			m.tool, r.Invocations, r.Bytes, r.Tokens, r.WallMS, dash(r.Truth), dash(r.Density))
+		log.Printf("    %-16s %2d inv  %8d B  %7d tok  %6d ms  rss=%dKiB api=%s truth=%s density=%s",
+			m.tool, r.Invocations, r.Bytes, r.Tokens, r.WallMS, r.MaxRSSKB, dash(r.APIRequests), dash(r.Truth), dash(r.Density))
 		rows = append(rows, r)
 	}
 	return rows, nil

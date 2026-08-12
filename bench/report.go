@@ -30,11 +30,28 @@ type row struct {
 	// signed error against the real tokenizer; only mole rows carry them.
 	EstTokens string
 	EstErrPct string
+	// MaxRSSKB is the peak resident set across the tool's invocations, KiB.
+	MaxRSSKB int64
+	// APIRequests and the phase columns come from mole's self-metrics
+	// (MOLE_METRICS_FILE); only mole rows carry them. The watch phase is the
+	// deliberate wait; everything else is overhead.
+	APIRequests string
+	PreflightMS string
+	SyncMS      string
+	WatchMS     string
+	DiagnoseMS  string
+	EmitMS      string
 }
+
+// baseColumns is the pre-resource-metrics schema; committed files that old
+// are still readable, with the extra columns defaulting to absent.
+const baseColumns = 10
 
 var csvHeader = []string{
 	"scenario", "tool", "invocations", "bytes", "tokens", "wall_ms",
 	"truth_found", "signal_density", "mole_est_tokens", "mole_est_error_pct",
+	"max_rss_kb", "api_requests",
+	"preflight_ms", "sync_ms", "watch_ms", "diagnose_ms", "emit_ms",
 }
 
 func (r row) record() []string {
@@ -42,6 +59,8 @@ func (r row) record() []string {
 		r.Scenario, r.Tool,
 		strconv.Itoa(r.Invocations), strconv.Itoa(r.Bytes), strconv.Itoa(r.Tokens),
 		strconv.FormatInt(r.WallMS, 10), r.Truth, r.Density, r.EstTokens, r.EstErrPct,
+		strconv.FormatInt(r.MaxRSSKB, 10), r.APIRequests,
+		r.PreflightMS, r.SyncMS, r.WatchMS, r.DiagnoseMS, r.EmitMS,
 	}
 }
 
@@ -91,8 +110,8 @@ func readRows(path string) ([]row, error) {
 		if i == 0 {
 			continue
 		}
-		if len(rec) < len(csvHeader) {
-			return nil, fmt.Errorf("%s line %d: %d fields, want %d", path, i+1, len(rec), len(csvHeader))
+		if len(rec) < baseColumns {
+			return nil, fmt.Errorf("%s line %d: %d fields, want at least %d", path, i+1, len(rec), baseColumns)
 		}
 		inv, err1 := strconv.Atoi(rec[2])
 		bs, err2 := strconv.Atoi(rec[3])
@@ -101,10 +120,20 @@ func readRows(path string) ([]row, error) {
 		if err := errors.Join(err1, err2, err3, err4); err != nil {
 			return nil, fmt.Errorf("%s line %d: %w", path, i+1, err)
 		}
-		out = append(out, row{
+		r := row{
 			Scenario: rec[0], Tool: rec[1], Invocations: inv, Bytes: bs, Tokens: tok,
 			WallMS: wall, Truth: rec[6], Density: rec[7], EstTokens: rec[8], EstErrPct: rec[9],
-		})
+		}
+		if len(rec) >= len(csvHeader) {
+			rss, err := strconv.ParseInt(rec[10], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%s line %d max_rss_kb: %w", path, i+1, err)
+			}
+			r.MaxRSSKB = rss
+			r.APIRequests, r.PreflightMS, r.SyncMS = rec[11], rec[12], rec[13]
+			r.WatchMS, r.DiagnoseMS, r.EmitMS = rec[14], rec[15], rec[16]
+		}
+		out = append(out, r)
 	}
 	return out, nil
 }
@@ -175,20 +204,25 @@ func writeMarkdown(path string, rows []row, meta runMeta) error {
 	b.WriteString("\n## Full measurements\n")
 	for _, sc := range scenarios {
 		fmt.Fprintf(&b, "\n### %s\n\n", sc)
-		b.WriteString("| Tool | Invocations | Bytes | Tokens | Wall ms | Truth | Signal density |\n")
-		b.WriteString("|---|---|---|---|---|---|---|\n")
+		b.WriteString("| Tool | Invocations | Bytes | Tokens | Wall ms | Max RSS | API reqs | Truth | Signal density |\n")
+		b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
 		for _, r := range rows {
 			if r.Scenario != sc {
 				continue
 			}
-			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %s | %s |\n",
+			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %s | %s | %s | %s |\n",
 				r.Tool, r.Invocations, r.Bytes, r.Tokens, r.WallMS,
+				rssCell(r.MaxRSSKB), dash(r.APIRequests),
 				dash(r.Truth), dash(r.Density))
 		}
 		for _, r := range rows {
 			if r.Scenario == sc && r.Tool == "mole" && r.EstTokens != "" {
 				fmt.Fprintf(&b, "\nmole's own ~4 chars/token estimate: %s tokens (%s%% vs o200k_base).\n",
 					r.EstTokens, r.EstErrPct)
+			}
+			if r.Scenario == sc && r.Tool == "mole" && r.WatchMS != "" {
+				fmt.Fprintf(&b, "\nmole phases (ms): preflight %s, informer sync %s, watch %s (the deliberate wait), diagnose %s, emit %s.\n",
+					dash(r.PreflightMS), dash(r.SyncMS), dash(r.WatchMS), dash(r.DiagnoseMS), dash(r.EmitMS))
 			}
 		}
 	}
@@ -214,6 +248,13 @@ func dash(s string) string {
 		return "—"
 	}
 	return s
+}
+
+func rssCell(kb int64) string {
+	if kb <= 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f MiB", float64(kb)/1024)
 }
 
 func orderedScenarios(rows []row) []string {
@@ -306,7 +347,7 @@ func writeRaw(dir, scenario string, ms []measurement) error {
 		for _, inv := range m.invs {
 			fmt.Fprintf(&b, "$ %s\n", strings.Join(inv.argv, " "))
 			b.Write(inv.out)
-			fmt.Fprintf(&b, "\n[%s]\n\n", inv.dur.Round(time.Millisecond))
+			fmt.Fprintf(&b, "\n[%s, max RSS %d KiB]\n\n", inv.dur.Round(time.Millisecond), inv.maxRSSKB)
 		}
 		name := filepath.Join(dir, fmt.Sprintf("%s.%s.txt", scenario, m.tool))
 		if err := os.WriteFile(name, []byte(b.String()), 0o644); err != nil {

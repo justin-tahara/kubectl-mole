@@ -63,15 +63,15 @@ and signal density: [bench/RESULTS.md](bench/RESULTS.md).
 
 | Scenario | mole | expert kubectl | naive kubectl | kubectl-status |
 |---|---|---|---|---|
-| CrashLoopBackOff | **343 ✓** (1 cmd) | 1,014 ✓ (3 cmds) | 3,738 ✓ (4 cmds) | 381 ✗ |
+| CrashLoopBackOff | **347 ✓** (1 cmd) | 928 ✓ (3 cmds) | 3,561 ✓ (4 cmds) | 375 ✗ |
 | Node dies under 2 workloads | **555 ✓** | 1,941 ✓ | 10,033 ✓ | 924 ✗ |
-| Fan-out, 50 namespaces | **608 ✓** | 2,700 ✓ | 82,293 ✓ | 9,253 ✓ |
-| Fan-out, 5,000 namespaces | **631 ✓** | 141,082 ✓ | 4,522,811 ✓ | 131,691 ✓ |
+| Fan-out, 50 namespaces | **631 ✓** | 2,750 ✓ | 79,140 ✓ | 9,248 ✓ |
+| Fan-out, 5,000 namespaces | **671 ✓** | 133,075 ✓ | 4,519,771 ✓ | 131,457 ✗ |
 
 The honest comparison is the expert column — the minimal hand-tuned sequence
 a good SRE runs. mole reaches the same answer in one invocation at roughly a
-third of the tokens, and its output stays flat as the fleet grows: 608
-tokens at 50 namespaces, 631 at 5,000, because identical causes collapse
+third of the tokens, and its output stays flat as the fleet grows: 631
+tokens at 50 namespaces, 671 at 5,000, because identical causes collapse
 into one entry and healthy workloads are counted, never enumerated. Across
 all 15 failure scenarios in the corpus, mole's output contains the ground
 truth 15 times.
@@ -79,9 +79,10 @@ truth 15 times.
 Where mole loses, published per the methodology: on a **healthy** workload,
 `kubectl get pods` + `get deploy` (96 tokens) beats mole's verdict (181);
 mole's wall-clock is its watch — the baselines answer in under a second
-*after* the failure is already steady, while a failure that stays wedged
-costs mole its full `--timeout`; and a focused `describe` can beat mole's
-signal density on workload-level failures.
+*after* the failure is already steady, while mole pays `--wedged-for` on a
+wedged failure (and the full `--timeout` on states that could still
+converge); and a focused `describe` can beat mole's signal density on
+workload-level failures.
 
 ## Install
 

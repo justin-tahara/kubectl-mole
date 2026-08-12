@@ -108,12 +108,24 @@ func (d *diagnoser) note(msg string) {
 
 // loadEvents lists namespace events once and indexes them client-side.
 func (d *diagnoser) loadEvents() {
-	list, err := d.cs.CoreV1().Events(d.target.Namespace).List(d.ctx, metav1.ListOptions{})
-	if err != nil {
-		d.note(fmt.Sprintf("cannot list events in namespace %s: event evidence omitted, status fields only", d.target.Namespace))
-		return
+	// Paginated: an event-heavy production namespace can hold tens of
+	// thousands of events, and an unbounded list would buffer them all in
+	// one response.
+	opts := metav1.ListOptions{Limit: 500}
+	var events []corev1.Event
+	for {
+		list, err := d.cs.CoreV1().Events(d.target.Namespace).List(d.ctx, opts)
+		if err != nil {
+			d.note(fmt.Sprintf("cannot list events in namespace %s: event evidence omitted, status fields only", d.target.Namespace))
+			return
+		}
+		events = append(events, list.Items...)
+		if list.Continue == "" {
+			break
+		}
+		opts.Continue = list.Continue
 	}
-	d.events = list.Items
+	d.events = events
 	sort.SliceStable(d.events, func(i, j int) bool {
 		return eventTime(d.events[i]).Time.Before(eventTime(d.events[j]).Time)
 	})

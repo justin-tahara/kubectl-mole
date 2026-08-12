@@ -307,7 +307,7 @@ func (ls *fleetListers) sourceFor(t Target) *source {
 }
 
 func factoryOptions(namespace, selector string) []informers.SharedInformerOption {
-	var fo []informers.SharedInformerOption
+	fo := []informers.SharedInformerOption{informers.WithTransform(stripManagedFields)}
 	if namespace != "" {
 		fo = append(fo, informers.WithNamespace(namespace))
 	}

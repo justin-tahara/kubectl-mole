@@ -3,39 +3,74 @@ package settle
 import (
 	"context"
 
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
+// watchScope narrows the related-object informer caches to the target's own
+// objects: the workload's spec.selector (which its pods, ReplicaSets and
+// ControllerRevisions carry across every revision), or the pod's own name
+// for a bare Pod. Empty means unfiltered — a CronJob's owned Jobs carry no
+// guaranteed label, and a missing selector falls back to the whole
+// namespace rather than a wrong cache.
+type watchScope struct {
+	labelSelector string
+	fieldSelector string
+}
+
 // preflight performs the reads the watch depends on, once, directly against
 // the API server. Informers swallow list errors — a denied watch would
 // otherwise surface as a cache-sync hang that lasts the full timeout. This
-// turns an RBAC denial or a missing target into an immediate typed error.
-func preflight(ctx context.Context, cs kubernetes.Interface, target Target) error {
+// turns an RBAC denial or a missing target into an immediate typed error,
+// and the fetched workload supplies the selector that scopes the caches.
+func preflight(ctx context.Context, cs kubernetes.Interface, target Target) (watchScope, error) {
+	var scope watchScope
 	var err error
+	sel := func(s *metav1.LabelSelector) string {
+		if s == nil {
+			return ""
+		}
+		return metav1.FormatLabelSelector(s)
+	}
 	switch target.Kind {
 	case KindDeployment:
-		_, err = cs.AppsV1().Deployments(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
+		var d *appsv1.Deployment
+		if d, err = cs.AppsV1().Deployments(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{}); err == nil {
+			scope.labelSelector = sel(d.Spec.Selector)
+		}
 	case KindStatefulSet:
-		_, err = cs.AppsV1().StatefulSets(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
+		var s *appsv1.StatefulSet
+		if s, err = cs.AppsV1().StatefulSets(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{}); err == nil {
+			scope.labelSelector = sel(s.Spec.Selector)
+		}
 	case KindDaemonSet:
-		_, err = cs.AppsV1().DaemonSets(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
+		var d *appsv1.DaemonSet
+		if d, err = cs.AppsV1().DaemonSets(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{}); err == nil {
+			scope.labelSelector = sel(d.Spec.Selector)
+		}
 	case KindJob:
-		_, err = cs.BatchV1().Jobs(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
+		var j *batchv1.Job
+		if j, err = cs.BatchV1().Jobs(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{}); err == nil {
+			scope.labelSelector = sel(j.Spec.Selector)
+		}
 	case KindCronJob:
 		_, err = cs.BatchV1().CronJobs(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
 	case KindPod:
-		_, err = cs.CoreV1().Pods(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
+		if _, err = cs.CoreV1().Pods(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{}); err == nil {
+			scope.fieldSelector = "metadata.name=" + target.Name
+		}
 	}
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return &NotFoundError{Target: target}
+			return watchScope{}, &NotFoundError{Target: target}
 		}
 		if apierrors.IsForbidden(err) {
-			return &PermissionError{Verb: "get", Resource: resourceName(target.Kind), Namespace: target.Namespace}
+			return watchScope{}, &PermissionError{Verb: "get", Resource: resourceName(target.Kind), Namespace: target.Namespace}
 		}
-		return err
+		return watchScope{}, err
 	}
 
 	resources := []string{"pods"}
@@ -49,10 +84,10 @@ func preflight(ctx context.Context, cs kubernetes.Interface, target Target) erro
 	}
 	for _, r := range resources {
 		if err := preflightList(ctx, cs, target.Namespace, r); err != nil {
-			return err
+			return watchScope{}, err
 		}
 	}
-	return nil
+	return scope, nil
 }
 
 func preflightList(ctx context.Context, cs kubernetes.Interface, namespace, resource string) error {

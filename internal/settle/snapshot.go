@@ -63,26 +63,30 @@ type source struct {
 	pods                corelisters.PodLister
 }
 
-// newSource registers exactly the informers target's kind needs. Registration
-// must happen before the factory starts.
-func newSource(factory informers.SharedInformerFactory, target Target) (*source, error) {
-	s := &source{target: target, pods: factory.Core().V1().Pods().Lister()}
+// newSource registers exactly the informers target's kind needs: the
+// workload's own kind on the name-pinned factory (wf), everything it owns
+// on the scope-filtered one (rf). Registration must happen before the
+// factories start.
+func newSource(wf, rf informers.SharedInformerFactory, target Target) (*source, error) {
+	s := &source{target: target, pods: rf.Core().V1().Pods().Lister()}
 	switch target.Kind {
 	case KindDeployment:
-		s.deployments = factory.Apps().V1().Deployments().Lister()
-		s.replicaSets = factory.Apps().V1().ReplicaSets().Lister()
+		s.deployments = wf.Apps().V1().Deployments().Lister()
+		s.replicaSets = rf.Apps().V1().ReplicaSets().Lister()
 	case KindStatefulSet:
-		s.statefulSets = factory.Apps().V1().StatefulSets().Lister()
+		s.statefulSets = wf.Apps().V1().StatefulSets().Lister()
 	case KindDaemonSet:
-		s.daemonSets = factory.Apps().V1().DaemonSets().Lister()
-		s.controllerRevisions = factory.Apps().V1().ControllerRevisions().Lister()
+		s.daemonSets = wf.Apps().V1().DaemonSets().Lister()
+		s.controllerRevisions = rf.Apps().V1().ControllerRevisions().Lister()
 	case KindJob:
-		s.jobs = factory.Batch().V1().Jobs().Lister()
+		s.jobs = wf.Batch().V1().Jobs().Lister()
 	case KindCronJob:
-		s.cronJobs = factory.Batch().V1().CronJobs().Lister()
-		s.jobs = factory.Batch().V1().Jobs().Lister()
+		s.cronJobs = wf.Batch().V1().CronJobs().Lister()
+		// Owned Jobs carry no guaranteed label; rf is unfiltered here.
+		s.jobs = rf.Batch().V1().Jobs().Lister()
 	case KindPod:
-		// The pods informer is already registered.
+		// The pods informer is already registered; rf is pinned to the
+		// pod's own name.
 	default:
 		return nil, fmt.Errorf("unsupported kind %q", target.Kind)
 	}

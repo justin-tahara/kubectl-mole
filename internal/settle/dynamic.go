@@ -46,8 +46,16 @@ func RunCustom(parent context.Context, cs kubernetes.Interface, dyn dynamic.Inte
 	}
 
 	dfac := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dyn, 0, namespace, nil)
-	lister := dfac.ForResource(gvr).Lister()
-	tfac := informers.NewSharedInformerFactoryWithOptions(cs, 0, informers.WithNamespace(namespace))
+	dinf := dfac.ForResource(gvr)
+	// The dynamic factory has no transform option; set it on the informer
+	// before the factory starts.
+	if err := dinf.Informer().SetTransform(stripManagedFields); err != nil {
+		return Result{}, fmt.Errorf("set informer transform: %w", err)
+	}
+	lister := dinf.Lister()
+	tfac := informers.NewSharedInformerFactoryWithOptions(cs, 0,
+		informers.WithNamespace(namespace),
+		informers.WithTransform(stripManagedFields))
 	src := &dynamicSource{
 		target:      target,
 		lister:      lister,

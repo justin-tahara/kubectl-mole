@@ -70,13 +70,13 @@ and signal density: [bench/RESULTS.md](bench/RESULTS.md).
 |---|---|---|---|---|
 | CrashLoopBackOff | **344 ✓** (1 cmd) | 1,017 ✓ (3 cmds) | 3,734 ✓ (4 cmds) | 381 ✗ |
 | Node dies under 2 workloads | **554 ✓** | 1,935 ✓ | 9,991 ✓ | 922 ✗ |
-| Fan-out, 50 namespaces | **652 ✓** | 2,711 ✓ | 82,242 ✓ | 9,277 ✓ |
-| Fan-out, 5,000 namespaces | **645 ✓** | 132,678 ✓ | 4,533,034 ✓ | 134,753 ✗ |
+| Fan-out, 50 namespaces | **658 ✓** | 2,679 ✓ | 79,302 ✓ | 9,272 ✓ |
+| Fan-out, 5,000 namespaces | **659 ✓** | 132,719 ✓ | 4,529,607 ✓ | 134,715 ✓ |
 
 The honest comparison is the expert column — the minimal hand-tuned sequence
 a good SRE runs. mole reaches the same answer in one invocation at roughly a
-third of the tokens, and its output stays flat as the fleet grows: 652
-tokens at 50 namespaces, 645 at 5,000, because identical causes collapse
+third of the tokens, and its output stays flat as the fleet grows: 658
+tokens at 50 namespaces, 659 at 5,000, because identical causes collapse
 into one entry and healthy workloads are counted, never enumerated. Across
 all 15 failure scenarios in the corpus, mole's output contains the ground
 truth 15 times.

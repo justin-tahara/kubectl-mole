@@ -8,8 +8,28 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	appslisters "k8s.io/client-go/listers/apps/v1"
 )
+
+// foreignPod reports a pod whose controlling owner is some other workload —
+// the sibling-DaemonSet shape, where two workloads share one label selector
+// (a paired linux/windows DaemonSet is the wild example). Such a pod is not
+// ours to judge: counting it as a previous-revision pod holds a healthy
+// target at progressing forever. A pod with no controller stays visible —
+// controllers adopt matching orphans, so one can genuinely wedge a rollout.
+func foreignPod(p *corev1.Pod, owners ...types.UID) bool {
+	ref := metav1.GetControllerOf(p)
+	if ref == nil {
+		return false
+	}
+	for _, uid := range owners {
+		if ref.UID == uid {
+			return false
+		}
+	}
+	return true
+}
 
 const (
 	deploymentRevisionAnnotation = "deployment.kubernetes.io/revision"
@@ -44,8 +64,16 @@ func splitDeploymentPods(d *appsv1.Deployment, rsLister appslisters.ReplicaSetLi
 	})
 	current := owned[len(owned)-1]
 
+	ownedUIDs := make([]types.UID, 0, len(owned))
+	for _, rs := range owned {
+		ownedUIDs = append(ownedUIDs, rs.UID)
+	}
+
 	var currentPods, old []*corev1.Pod
 	for _, p := range pods {
+		if foreignPod(p, ownedUIDs...) {
+			continue
+		}
 		if ref := metav1.GetControllerOf(p); ref != nil && ref.UID == current.UID {
 			currentPods = append(currentPods, p)
 		} else {
@@ -72,6 +100,9 @@ func splitStatefulSetPods(sts *appsv1.StatefulSet, pods []*corev1.Pod) ([]*corev
 	}
 	var current, old []*corev1.Pod
 	for _, p := range pods {
+		if foreignPod(p, sts.UID) {
+			continue
+		}
 		if p.Labels[controllerRevisionHashLabel] == rev {
 			current = append(current, p)
 		} else {
@@ -105,6 +136,9 @@ func splitDaemonSetPods(ds *appsv1.DaemonSet, crLister appslisters.ControllerRev
 
 	var current, old []*corev1.Pod
 	for _, p := range pods {
+		if foreignPod(p, ds.UID) {
+			continue
+		}
 		if hash != "" && p.Labels[controllerRevisionHashLabel] == hash {
 			current = append(current, p)
 		} else {

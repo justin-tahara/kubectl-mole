@@ -1,0 +1,42 @@
+name: Signature request
+description: A failure mode mole should diagnose, or diagnoses wrong
+labels: [signature]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The failure-signature catalogue is the heart of the tool, and this is
+        the most valuable issue you can open. Describe the failure the way the
+        cluster saw it — the verdict you *wanted* is the spec.
+  - type: textarea
+    id: what-broke
+    attributes:
+      label: What broke
+      description: The failure mode, in cluster terms.
+      placeholder: Pods wedged in Terminating for 20 minutes behind a finalizer while the rollout waited.
+    validations:
+      required: true
+  - type: textarea
+    id: objects
+    attributes:
+      label: What the API objects looked like
+      description: >-
+        Relevant status excerpts — pod phase, container states, conditions,
+        events. Redact freely; a manifest that reproduces the failure is even
+        better.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: verdict
+    attributes:
+      label: What the verdict should have said
+      description: The signature name, the cause line, and the evidence you would expect.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: What mole says today
+      description: Output of `kubectl mole <target> -o json`, if you ran it.
+      render: json

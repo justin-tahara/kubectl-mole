@@ -1,0 +1,24 @@
+name: Feature request
+description: Anything that is not a bug or a new signature
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Note the design constraints in [DESIGN.md](https://github.com/justin-tahara/kubectl-mole/blob/main/DESIGN.md):
+        one verb, read-only, no LLM, informers only, deterministic output.
+        Features that fit inside them are easy conversations; features that
+        relax them are usually declined.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you cannot do today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true

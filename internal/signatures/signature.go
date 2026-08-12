@@ -75,6 +75,7 @@ var podDetectors = []podDetector{
 	{"ConfigMissing", detectConfigMissing},
 	{"ContainerStartFailed", detectStartFailed},
 	{"CrashLoopBackOff", detectCrashLoop},
+	{"ContainerFailed", detectContainerFailed},
 	{"ImagePullBackOff", detectImagePull},
 	{"ProbeFailing", detectProbeFailing},
 }

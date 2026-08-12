@@ -42,9 +42,30 @@ func (t *tracker) observe(now time.Time, s snapshot) (Outcome, bool) {
 	t.lastSnap = s
 	t.noteRestarts(s.currentPods)
 
+	if s.terminalFailure != "" {
+		t.lastReason = "failed: " + s.terminalFailure
+		return OutcomeFailed, true
+	}
 	if s.kstatus.Status == status.FailedStatus {
 		t.lastReason = fmt.Sprintf("failed: %s", s.kstatus.Message)
 		return OutcomeFailed, true
+	}
+	// Completion-terminal targets bypass the readiness path entirely:
+	// completion cannot regress, so Current settles with no stability
+	// window, and pod-level churn (retry pods, restarts) is progress.
+	if s.completionTerminal {
+		if s.kstatus.Status == status.CurrentStatus {
+			t.lastReason = "completed"
+			if s.kstatus.Message != "" {
+				t.lastReason = "completed: " + s.kstatus.Message
+			}
+			return OutcomeSettled, true
+		}
+		t.lastReason = s.kstatus.Message
+		if t.lastReason == "" {
+			t.lastReason = "not complete yet"
+		}
+		return "", false
 	}
 
 	healthy, reason := healthyNow(s)
@@ -82,14 +103,19 @@ func (t *tracker) observation() Observation {
 // timeoutVerdict classifies a watch that hit its timeout. Failed requires a
 // concrete terminal indicator; everything else is progressing — conflating
 // the two is how automation rolls back a deployment that was 30 seconds from
-// healthy.
+// healthy. For completion-terminal targets only a wedged container counts:
+// pods in phase Failed and restarts are how retries look, and the controller
+// has not declared the Job failed.
 func (t *tracker) timeoutVerdict() (Outcome, string) {
 	for _, p := range t.lastSnap.currentPods {
-		if r := terminalPodReason(p); r != "" {
+		if r := terminalWaitingReason(p); r != "" {
 			return OutcomeFailed, r
 		}
+		if !t.lastSnap.completionTerminal && p.Status.Phase == corev1.PodFailed {
+			return OutcomeFailed, fmt.Sprintf("pod %s in phase Failed", p.Name)
+		}
 	}
-	if t.restartObserved != "" {
+	if !t.lastSnap.completionTerminal && t.restartObserved != "" {
 		return OutcomeFailed, t.restartObserved + " and the workload did not settle"
 	}
 	reason := t.lastReason

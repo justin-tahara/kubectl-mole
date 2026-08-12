@@ -158,3 +158,65 @@ func TestTimeoutClassification(t *testing.T) {
 		t.Fatalf("restart observed during watch: want failed at timeout, got %s (%s)", out, reason)
 	}
 }
+
+// completionSnap is a completion-terminal snapshot (Job/CronJob semantics).
+func completionSnap(st status.Status, msg string, pods []*corev1.Pod) snapshot {
+	return snapshot{
+		found:              true,
+		kstatus:            kstatusResult{Status: st, Message: msg},
+		currentPods:        pods,
+		completionTerminal: true,
+	}
+}
+
+func TestJobCompletionSettlesImmediately(t *testing.T) {
+	tr := newTracker(opts())
+	// No stability window for completion: Complete cannot regress.
+	out, done := tr.observe(t0, completionSnap(status.CurrentStatus, "Job Completed", nil))
+	if !done || out != OutcomeSettled {
+		t.Fatalf("completion must settle immediately, got done=%v out=%s", done, out)
+	}
+}
+
+func TestSuspendedJobFailsImmediately(t *testing.T) {
+	tr := newTracker(opts())
+	s := snapshot{found: true, completionTerminal: true, terminalFailure: "job x is suspended (spec.suspend) and will not run until unsuspended"}
+	out, done := tr.observe(t0, s)
+	if !done || out != OutcomeFailed {
+		t.Fatalf("suspension is terminal, got done=%v out=%s", done, out)
+	}
+	if !strings.Contains(tr.lastReason, "suspended") {
+		t.Fatalf("reason should say suspended, got %q", tr.lastReason)
+	}
+}
+
+// TestRetryingJobAtTimeoutIsProgressing: retry pods in phase Failed and
+// restarts are how a Job under backoffLimit looks — the controller has not
+// declared it failed, and neither may mole.
+func TestRetryingJobAtTimeoutIsProgressing(t *testing.T) {
+	tr := newTracker(opts())
+	failed := mkpod("retry-1", "u1", false, 0)
+	failed.Status.Phase = corev1.PodFailed
+	restarted := mkpod("retry-2", "u2", false, 2)
+	tr.observe(t0, completionSnap(status.InProgressStatus, "Job in progress", []*corev1.Pod{failed, restarted}))
+	out, reason := tr.timeoutVerdict()
+	if out != OutcomeProgressing {
+		t.Fatalf("a retrying job is progressing at timeout, got %s (%s)", out, reason)
+	}
+}
+
+// TestWedgedJobPodAtTimeoutIsFailed: a terminal waiting state is failure for
+// every kind — retries cannot fix an image that does not pull.
+func TestWedgedJobPodAtTimeoutIsFailed(t *testing.T) {
+	tr := newTracker(opts())
+	wedged := mkpod("wedge", "u1", false, 0)
+	wedged.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  "main",
+		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}},
+	}}
+	tr.observe(t0, completionSnap(status.InProgressStatus, "Job in progress", []*corev1.Pod{wedged}))
+	out, reason := tr.timeoutVerdict()
+	if out != OutcomeFailed || !strings.Contains(reason, "ImagePullBackOff") {
+		t.Fatalf("wedged container must fail at timeout, got %s (%s)", out, reason)
+	}
+}

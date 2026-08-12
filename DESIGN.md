@@ -83,6 +83,7 @@ Examples:
 | `-l, --selector` | | Label selector |
 | `-n, --namespace` | current | Namespace |
 | `--max-targets` | 5000 | Fan-out ceiling; a broader selection is refused |
+| `--include-jobs` | off | Add Jobs to the fan-out |
 | `--qps`, `--burst` | 20, 30 | Client-side API rate limits |
 
 Standard kubeconfig flags (`--context`, `--kubeconfig`, `--namespace`, ...)
@@ -145,6 +146,7 @@ v0.2 catalogue (M11, the everyday failure modes):
 | `VolumeMountFailed` | `FailedMount`/`FailedAttachVolume` events on a pod still waiting to start | the mount or attach error, which names the missing object or conflict |
 | `PodSandboxFailed` | `FailedCreatePodSandBox` events on a pod still waiting to start | the CNI or runtime error |
 | `ContainerStartFailed` | terminated/waiting reason `StartError`, `ContainerCannotRun`, `CreateContainerError`, `RunContainerError` | the runtime error (classic case: executable not found) |
+| `ContainerFailed` | pod phase `Failed` with a non-zero container exit (the shape of every Job retry under restartPolicy Never) | exit code and the dead container's log tail |
 | `PodEvicted` | pod phase `Failed`, status reason `Evicted` | the eviction message: node pressure or ephemeral-storage breach |
 | `PodStuckTerminating` | deletion timestamp past grace + slack with finalizers present; also runs on previous-revision pods | the finalizers and the deletion timestamp |
 

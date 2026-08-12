@@ -228,3 +228,48 @@ func TestDiagnoseOldPodStuckTerminating(t *testing.T) {
 		t.Fatalf("finding must be anchored to the old pod, got %+v", rep.Findings[0])
 	}
 }
+
+// TestContainerFailedClaimsJobRetryPod: a restartPolicy-Never pod that ran
+// and exited non-zero has no crash loop and no restarts — the shape of every
+// Job retry — and must still be diagnosed.
+func TestContainerFailedClaimsJobRetryPod(t *testing.T) {
+	p := basePod("retry")
+	p.Status.Phase = corev1.PodFailed
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  "main",
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 5, Reason: "Error"}},
+	}}
+	c := emptyCtx()
+	c.CrashLogs = func(*corev1.Pod, corev1.ContainerStatus) string { return "FATAL: migration checksum mismatch\n" }
+	f := diagnosePod(c, p)
+	if f == nil || f.Signature != "ContainerFailed" {
+		t.Fatalf("want ContainerFailed, got %+v", f)
+	}
+	if !strings.Contains(f.Cause, "exited with code 5") {
+		t.Fatalf("cause should carry the exit code, got %q", f.Cause)
+	}
+	found := false
+	for _, ev := range f.Evidence {
+		if ev.Source == "log" && strings.Contains(ev.Text, "checksum mismatch") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the dead container's logs belong in evidence: %+v", f.Evidence)
+	}
+}
+
+func TestEvictedOutranksContainerFailed(t *testing.T) {
+	p := basePod("gone")
+	p.Status.Phase = corev1.PodFailed
+	p.Status.Reason = "Evicted"
+	p.Status.Message = "The node had condition: [DiskPressure]."
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  "main",
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 137}},
+	}}
+	f := diagnosePod(emptyCtx(), p)
+	if f == nil || f.Signature != "PodEvicted" {
+		t.Fatalf("eviction is the deeper cause, got %+v", f)
+	}
+}

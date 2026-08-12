@@ -61,6 +61,13 @@ func terminalPodReason(p *corev1.Pod) string {
 	if p.Status.Phase == corev1.PodFailed {
 		return fmt.Sprintf("pod %s in phase Failed", p.Name)
 	}
+	return terminalWaitingReason(p)
+}
+
+// terminalWaitingReason reports a container wedged in a terminal waiting
+// state, the one indicator that is failure for every target kind — a Job
+// retry can survive pods in phase Failed, but not an image that cannot pull.
+func terminalWaitingReason(p *corev1.Pod) string {
 	statuses := make([]corev1.ContainerStatus, 0, len(p.Status.InitContainerStatuses)+len(p.Status.ContainerStatuses))
 	statuses = append(statuses, p.Status.InitContainerStatuses...)
 	statuses = append(statuses, p.Status.ContainerStatuses...)

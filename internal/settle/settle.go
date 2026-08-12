@@ -17,6 +17,9 @@ const (
 	KindDeployment  Kind = "Deployment"
 	KindStatefulSet Kind = "StatefulSet"
 	KindDaemonSet   Kind = "DaemonSet"
+	KindJob         Kind = "Job"
+	KindCronJob     Kind = "CronJob"
+	KindPod         Kind = "Pod"
 )
 
 // Target identifies one workload to watch.

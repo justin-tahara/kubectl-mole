@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	appslisters "k8s.io/client-go/listers/apps/v1"
+	batchlisters "k8s.io/client-go/listers/batch/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 )
 
@@ -29,6 +30,9 @@ type Scope struct {
 	// MaxTargets caps the fleet size; 0 means DefaultMaxTargets. A selection
 	// past the cap is refused with an OverCeilingError.
 	MaxTargets int
+	// IncludeJobs adds Jobs to the fan-out. Off by default: batch churn
+	// (completed and retrying Jobs) would otherwise drown fleet verdicts.
+	IncludeJobs bool
 }
 
 // TargetResult pairs one fleet target with its outcome.
@@ -81,6 +85,19 @@ func Discover(ctx context.Context, cs kubernetes.Interface, scope Scope) ([]Targ
 		targets = append(targets, Target{Kind: KindDaemonSet, Namespace: dss.Items[i].Namespace, Name: dss.Items[i].Name})
 	}
 	more = more || dss.Continue != ""
+
+	if scope.IncludeJobs {
+		jobs, err := cs.BatchV1().Jobs(ns).List(ctx, opts)
+		if err != nil {
+			return nil, listError(err, "jobs", ns)
+		}
+		for i := range jobs.Items {
+			// Jobs owned by a CronJob still count: each run either completed
+			// or has a diagnosable problem.
+			targets = append(targets, Target{Kind: KindJob, Namespace: jobs.Items[i].Namespace, Name: jobs.Items[i].Name})
+		}
+		more = more || jobs.Continue != ""
+	}
 
 	if more || len(targets) > ceiling {
 		return nil, &OverCeilingError{Matched: len(targets), Ceiling: ceiling}
@@ -242,6 +259,7 @@ type fleetListers struct {
 	statefulSets        appslisters.StatefulSetLister
 	daemonSets          appslisters.DaemonSetLister
 	controllerRevisions appslisters.ControllerRevisionLister
+	jobs                batchlisters.JobLister
 	pods                corelisters.PodLister
 }
 
@@ -257,6 +275,8 @@ func newFleetListers(wf, rf informers.SharedInformerFactory, targets []Target) *
 		case KindDaemonSet:
 			ls.daemonSets = wf.Apps().V1().DaemonSets().Lister()
 			ls.controllerRevisions = rf.Apps().V1().ControllerRevisions().Lister()
+		case KindJob:
+			ls.jobs = wf.Batch().V1().Jobs().Lister()
 		}
 	}
 	return ls
@@ -270,6 +290,7 @@ func (ls *fleetListers) sourceFor(t Target) *source {
 		statefulSets:        ls.statefulSets,
 		daemonSets:          ls.daemonSets,
 		controllerRevisions: ls.controllerRevisions,
+		jobs:                ls.jobs,
 		pods:                ls.pods,
 	}
 }

@@ -30,6 +30,9 @@ var kindAliases = map[string]settle.Kind{
 	"deployment": settle.KindDeployment, "deployments": settle.KindDeployment, "deploy": settle.KindDeployment,
 	"statefulset": settle.KindStatefulSet, "statefulsets": settle.KindStatefulSet, "sts": settle.KindStatefulSet,
 	"daemonset": settle.KindDaemonSet, "daemonsets": settle.KindDaemonSet, "ds": settle.KindDaemonSet,
+	"job": settle.KindJob, "jobs": settle.KindJob,
+	"cronjob": settle.KindCronJob, "cronjobs": settle.KindCronJob, "cj": settle.KindCronJob,
+	"pod": settle.KindPod, "pods": settle.KindPod, "po": settle.KindPod,
 }
 
 type options struct {
@@ -41,6 +44,7 @@ type options struct {
 	selector      string
 	allNamespaces bool
 	maxTargets    int
+	includeJobs   bool
 	qps           float32
 	burst         int
 	streams       genericiooptions.IOStreams
@@ -70,8 +74,8 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "kubectl-mole [TYPE/NAME]",
 		Short:   "Watch resources until they settle, then explain what broke",
-		Long:    "kubectl-mole watches Kubernetes resources until they settle, then emits one structured verdict explaining what happened and, if something failed, why.\n\nWith no TYPE/NAME argument it fans out over every Deployment, StatefulSet and DaemonSet in scope — one namespace, or all of them with --all-namespaces, optionally filtered by --selector.",
-		Example: "  kubectl mole deployment/api -n prod\n  kubectl mole sts/db --timeout 3m --stable-for 20s -o json\n  kubectl mole -n prod -l app.kubernetes.io/name=api\n  kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform -o json --budget 800",
+		Long:    "kubectl-mole watches Kubernetes resources until they settle, then emits one structured verdict explaining what happened and, if something failed, why.\n\nDeployments, StatefulSets and DaemonSets settle by holding healthy; Jobs, CronJobs and bare Pods settle by completing. With no TYPE/NAME argument it fans out over every Deployment, StatefulSet and DaemonSet in scope (Jobs too with --include-jobs) — one namespace, or all of them with --all-namespaces, optionally filtered by --selector.",
+		Example: "  kubectl mole deployment/api -n prod\n  kubectl mole sts/db --timeout 3m --stable-for 20s -o json\n  kubectl mole job/migrate -n prod\n  kubectl mole -n prod -l app.kubernetes.io/name=api\n  kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform -o json --budget 800",
 		Version: version,
 		Args:    cobra.RangeArgs(0, 2),
 		// The command handles its own errors and exit codes; cobra should not
@@ -89,6 +93,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().StringVarP(&o.selector, "selector", "l", "", "label selector for fan-out over workloads (instead of TYPE/NAME)")
 	cmd.Flags().BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "fan out across all namespaces")
 	cmd.Flags().IntVar(&o.maxTargets, "max-targets", settle.DefaultMaxTargets, "refuse a fan-out matching more workloads than this")
+	cmd.Flags().BoolVar(&o.includeJobs, "include-jobs", false, "add Jobs to the fan-out (off by default: batch churn drowns fleet verdicts)")
 	cmd.Flags().Float32Var(&o.qps, "qps", 20, "client-side API request rate (queries per second)")
 	cmd.Flags().IntVar(&o.burst, "burst", 30, "client-side API request burst allowance")
 	o.configFlags.AddFlags(cmd.Flags())
@@ -109,7 +114,7 @@ func parseTarget(args []string) (settle.Kind, string, error) {
 	}
 	kind, ok := kindAliases[strings.ToLower(kindArg)]
 	if !ok {
-		return "", "", fmt.Errorf("unsupported resource type %q (supported: deployment, statefulset, daemonset)", kindArg)
+		return "", "", fmt.Errorf("unsupported resource type %q (supported: deployment, statefulset, daemonset, job, cronjob, pod)", kindArg)
 	}
 	return kind, name, nil
 }
@@ -197,7 +202,7 @@ func validateSelection(args []string, selector string, allNamespaces bool) error
 // non-settled ones, collapse findings across the whole fleet, and emit one
 // verdict whose status is the worst outcome observed.
 func (o *options) runFleet(ctx context.Context, cs kubernetes.Interface, ns string) error {
-	scope := settle.Scope{Namespace: ns, Selector: o.selector, MaxTargets: o.maxTargets}
+	scope := settle.Scope{Namespace: ns, Selector: o.selector, MaxTargets: o.maxTargets, IncludeJobs: o.includeJobs}
 	start := time.Now()
 	results, err := settle.RunFleet(ctx, cs, scope, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
 	if err != nil {

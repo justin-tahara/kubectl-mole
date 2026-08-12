@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/informers"
 	appslisters "k8s.io/client-go/listers/apps/v1"
+	batchlisters "k8s.io/client-go/listers/batch/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"sigs.k8s.io/cli-utils/pkg/kstatus/status"
 )
@@ -35,6 +36,15 @@ type snapshot struct {
 	// terminating, which controllers stop counting long before they are
 	// gone), sorted by name.
 	oldPods []*corev1.Pod
+	// completionTerminal marks targets whose success is completion, not held
+	// readiness (Jobs, CronJobs, Succeeded pods): a Current kstatus settles
+	// immediately — completion cannot regress, so there is no stability
+	// window — and pod-level churn (retry pods in phase Failed, restarts
+	// under restartPolicy OnFailure) is normal progress, not failure.
+	completionTerminal bool
+	// terminalFailure, when non-empty, ends the watch failed with this
+	// reason regardless of anything else (a suspended Job will never run).
+	terminalFailure string
 }
 
 // source reads the informer caches needed for one target kind.
@@ -45,6 +55,8 @@ type source struct {
 	statefulSets        appslisters.StatefulSetLister
 	daemonSets          appslisters.DaemonSetLister
 	controllerRevisions appslisters.ControllerRevisionLister
+	jobs                batchlisters.JobLister
+	cronJobs            batchlisters.CronJobLister
 	pods                corelisters.PodLister
 }
 
@@ -61,6 +73,13 @@ func newSource(factory informers.SharedInformerFactory, target Target) (*source,
 	case KindDaemonSet:
 		s.daemonSets = factory.Apps().V1().DaemonSets().Lister()
 		s.controllerRevisions = factory.Apps().V1().ControllerRevisions().Lister()
+	case KindJob:
+		s.jobs = factory.Batch().V1().Jobs().Lister()
+	case KindCronJob:
+		s.cronJobs = factory.Batch().V1().CronJobs().Lister()
+		s.jobs = factory.Batch().V1().Jobs().Lister()
+	case KindPod:
+		// The pods informer is already registered.
 	default:
 		return nil, fmt.Errorf("unsupported kind %q", target.Kind)
 	}
@@ -75,6 +94,12 @@ func (s *source) snapshot() (snapshot, error) {
 		return s.statefulSetSnapshot()
 	case KindDaemonSet:
 		return s.daemonSetSnapshot()
+	case KindJob:
+		return s.jobSnapshot()
+	case KindCronJob:
+		return s.cronJobSnapshot()
+	case KindPod:
+		return s.podSnapshot()
 	}
 	return snapshot{}, fmt.Errorf("unsupported kind %q", s.target.Kind)
 }
@@ -84,7 +109,7 @@ func (s *source) deploymentSnapshot() (snapshot, error) {
 	if err != nil {
 		return snapshot{}, notFoundOr(err, s.target)
 	}
-	ks, err := computeKstatus(d, "Deployment")
+	ks, err := computeKstatus(d, "apps/v1", "Deployment")
 	if err != nil {
 		return snapshot{}, err
 	}
@@ -108,7 +133,7 @@ func (s *source) statefulSetSnapshot() (snapshot, error) {
 	if err != nil {
 		return snapshot{}, notFoundOr(err, s.target)
 	}
-	ks, err := computeKstatus(sts, "StatefulSet")
+	ks, err := computeKstatus(sts, "apps/v1", "StatefulSet")
 	if err != nil {
 		return snapshot{}, err
 	}
@@ -132,7 +157,7 @@ func (s *source) daemonSetSnapshot() (snapshot, error) {
 	if err != nil {
 		return snapshot{}, notFoundOr(err, s.target)
 	}
-	ks, err := computeKstatus(ds, "DaemonSet")
+	ks, err := computeKstatus(ds, "apps/v1", "DaemonSet")
 	if err != nil {
 		return snapshot{}, err
 	}
@@ -173,13 +198,13 @@ func notFoundOr(err error, target Target) error {
 
 // computeKstatus runs the kstatus readiness computation over the typed
 // object. Lister objects lack TypeMeta, so the GVK is set explicitly.
-func computeKstatus(obj runtime.Object, kind string) (kstatusResult, error) {
+func computeKstatus(obj runtime.Object, apiVersion, kind string) (kstatusResult, error) {
 	m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 	if err != nil {
 		return kstatusResult{}, fmt.Errorf("convert %s for kstatus: %w", kind, err)
 	}
 	u := &unstructured.Unstructured{Object: m}
-	u.SetAPIVersion("apps/v1")
+	u.SetAPIVersion(apiVersion)
 	u.SetKind(kind)
 	res, err := status.Compute(u)
 	if err != nil {

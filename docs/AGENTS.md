@@ -42,7 +42,8 @@ success is how a typoed namespace ships to prod.
   `CrashLoopBackOff`, `PodUnschedulable`, `PVCPending`, `OOMKilled`,
   `ProbeFailing`, `AdmissionRejected`, `QuotaExceeded`, `NodeNotReady`,
   `ConfigMissing`, `VolumeMountFailed`, `PodSandboxFailed`,
-  `ContainerStartFailed`, `PodEvicted`, `PodStuckTerminating`.
+  `ContainerStartFailed`, `ContainerFailed`, `PodEvicted`,
+  `PodStuckTerminating`.
 - Init-container failures say so in the cause ("init container migrate is
   crash-looping"); the signature is the mechanism either way.
 - `failures[].chain` is the ownership walk from workload to pod
@@ -59,6 +60,21 @@ success is how a typoed namespace ships to prod.
   the picture is partial.
 - `contentHash` is stable across runs when nothing moved (it excludes
   `elapsed`). Compare hashes to detect "same verdict as last time" cheaply.
+
+## Target kinds
+
+Deployments, StatefulSets, and DaemonSets settle by holding healthy for the
+stability window. Jobs, CronJobs, and bare Pods settle by completing:
+
+- A Job settles on its `Complete` condition — immediately, with no
+  stability window, because completion cannot regress. It fails on the
+  `Failed` condition (`BackoffLimitExceeded`, `DeadlineExceeded`) or when
+  suspended. Retry pods in phase `Failed` and restarts are progress, not
+  failure — exit 2 at timeout, not 1 — unless a container is wedged in a
+  terminal waiting state (an image that cannot pull).
+- A CronJob is judged by its most recent scheduled Job. Nothing scheduled
+  yet is progressing; a suspended CronJob is failed.
+- A bare Pod settles by holding Ready, or terminally by phase `Succeeded`.
 
 ## Fan-out
 
@@ -129,6 +145,7 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | `-l, --selector` | | Fan out over the workloads matching a label selector. |
 | `-A, --all-namespaces` | `false` | Fan out across all namespaces. |
 | `--max-targets` | `5000` | Fan-out ceiling; a broader selection is refused. |
+| `--include-jobs` | off | Add Jobs to the fan-out (batch churn drowns fleet verdicts otherwise). |
 | `--qps` / `--burst` | `20` / `30` | Client-side API rate limits; raise for very large fan-outs. |
 
 Even unbudgeted output stays compact: evidence is clipped per item and every

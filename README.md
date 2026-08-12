@@ -37,8 +37,13 @@ into one command with a definite answer and a meaningful exit code.
   `NodeNotReady` entry with `"affected": 40` — one fix, not forty. Collapse
   works across namespaces in fan-out mode.
 - **Fleet fan-out.** No target means every Deployment, StatefulSet, and
-  DaemonSet in scope (`-n`, `-A`, `-l`), watched off one shared informer
-  set, returned as one verdict — worst outcome wins.
+  DaemonSet in scope (`-n`, `-A`, `-l`; Jobs too with `--include-jobs`),
+  watched off one shared informer set, returned as one verdict — worst
+  outcome wins.
+- **Jobs settle by finishing.** `kubectl mole job/migrate` succeeds on the
+  Complete condition — retries are progress, not failure — and fails on
+  `backoffLimit`, `activeDeadlineSeconds`, or suspension. CronJobs are
+  judged by their most recent scheduled Job; bare Pods work too.
 
 ## The numbers
 
@@ -108,6 +113,8 @@ plugin. RBAC for the read access mole needs ships in
 ```
 kubectl mole deployment/api -n prod
 kubectl mole sts/db --timeout 3m --stable-for 20s -o json
+kubectl mole job/migrate -n prod
+kubectl mole pod/debug-shell
 kubectl mole deployment/api -n prod -o json --budget 800
 kubectl mole -n prod -l app.kubernetes.io/name=api
 kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform

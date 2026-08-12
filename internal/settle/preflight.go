@@ -21,6 +21,12 @@ func preflight(ctx context.Context, cs kubernetes.Interface, target Target) erro
 		_, err = cs.AppsV1().StatefulSets(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
 	case KindDaemonSet:
 		_, err = cs.AppsV1().DaemonSets(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
+	case KindJob:
+		_, err = cs.BatchV1().Jobs(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
+	case KindCronJob:
+		_, err = cs.BatchV1().CronJobs(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
+	case KindPod:
+		_, err = cs.CoreV1().Pods(target.Namespace).Get(ctx, target.Name, metav1.GetOptions{})
 	}
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -38,6 +44,8 @@ func preflight(ctx context.Context, cs kubernetes.Interface, target Target) erro
 		resources = append(resources, "replicasets")
 	case KindDaemonSet:
 		resources = append(resources, "controllerrevisions")
+	case KindCronJob:
+		resources = append(resources, "jobs")
 	}
 	for _, r := range resources {
 		if err := preflightList(ctx, cs, target.Namespace, r); err != nil {
@@ -57,6 +65,8 @@ func preflightList(ctx context.Context, cs kubernetes.Interface, namespace, reso
 		_, err = cs.AppsV1().ReplicaSets(namespace).List(ctx, opts)
 	case "controllerrevisions":
 		_, err = cs.AppsV1().ControllerRevisions(namespace).List(ctx, opts)
+	case "jobs":
+		_, err = cs.BatchV1().Jobs(namespace).List(ctx, opts)
 	}
 	if apierrors.IsForbidden(err) {
 		return &PermissionError{Verb: "list", Resource: resource, Namespace: namespace}
@@ -72,6 +82,12 @@ func resourceName(k Kind) string {
 		return "statefulsets"
 	case KindDaemonSet:
 		return "daemonsets"
+	case KindJob:
+		return "jobs"
+	case KindCronJob:
+		return "cronjobs"
+	case KindPod:
+		return "pods"
 	}
 	return string(k)
 }

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -71,9 +72,20 @@ func (f *fixture) namespace(key string, extraLabels map[string]string) (string, 
 }
 
 func (f *fixture) deployment(ns, name string, mut ...func(*appsv1.Deployment)) error {
+	d := benchDeployment(f.run, name, mut...)
+	if _, err := f.cs.AppsV1().Deployments(ns).Create(f.ctx, d, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create deployment %s/%s: %w", ns, name, err)
+	}
+	f.notePertinent(name)
+	return nil
+}
+
+// benchDeployment builds the standard bench deployment object; pure, so the
+// concurrent fleet staging can share it with the serial helper.
+func benchDeployment(run, name string, mut ...func(*appsv1.Deployment)) *appsv1.Deployment {
 	labels := map[string]string{"app": name}
 	d := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{"mole-bench": f.run}},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{"mole-bench": run}},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: ptr.To(int32(1)),
 			Selector: &metav1.LabelSelector{MatchLabels: labels},
@@ -93,11 +105,65 @@ func (f *fixture) deployment(ns, name string, mut ...func(*appsv1.Deployment)) e
 	for _, m := range mut {
 		m(d)
 	}
-	if _, err := f.cs.AppsV1().Deployments(ns).Create(f.ctx, d, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("create deployment %s/%s: %w", ns, name, err)
+	return d
+}
+
+// fleetQuiet stages n identical fleet members — namespace plus deployment
+// "app" each — through a worker pool. Staging is the only concurrent phase
+// of the bench: nothing is being measured yet, and the serial loop was
+// latency-bound at one blocking round-trip per object (10,000 of them for
+// the 5,000-namespace point). Shared fixture state is only touched after
+// the pool drains.
+func (f *fixture) fleetQuiet(n int, mut ...func(*appsv1.Deployment)) error {
+	const workers = 32
+	type staged struct {
+		ns  string
+		err error
 	}
-	f.notePertinent(name)
-	return nil
+	jobs := make(chan struct{})
+	results := make(chan staged, n)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range jobs {
+				ns, err := f.cs.CoreV1().Namespaces().Create(f.ctx, &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{GenerateName: "mole-bench-", Labels: map[string]string{"mole-bench": f.run}},
+				}, metav1.CreateOptions{})
+				if err != nil {
+					results <- staged{err: fmt.Errorf("create namespace: %w", err)}
+					continue
+				}
+				d := benchDeployment(f.run, "app", mut...)
+				if _, err := f.cs.AppsV1().Deployments(ns.Name).Create(f.ctx, d, metav1.CreateOptions{}); err != nil {
+					results <- staged{ns: ns.Name, err: fmt.Errorf("create deployment %s/app: %w", ns.Name, err)}
+					continue
+				}
+				results <- staged{ns: ns.Name}
+			}
+		}()
+	}
+	go func() {
+		for i := 0; i < n; i++ {
+			jobs <- struct{}{}
+		}
+		close(jobs)
+	}()
+	wg.Wait()
+	close(results)
+
+	var firstErr error
+	for r := range results {
+		if r.ns != "" {
+			f.namespaces = append(f.namespaces, r.ns)
+		}
+		if r.err != nil && firstErr == nil {
+			firstErr = r.err
+		}
+	}
+	f.notePertinent("app")
+	return firstErr
 }
 
 func (f *fixture) notePertinent(term string) {

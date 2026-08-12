@@ -106,7 +106,7 @@ func execOne(argv []string, extraEnv ...string) invocation {
 // channel, never part of the measured output.
 func (rc *runCtx) mole(args []string, timeout time.Duration) measurement {
 	argv := append([]string{rc.molePath}, args...)
-	argv = append(argv, "-o", "json", "--stable-for", "5s",
+	argv = append(argv, "-o", "json", "--stable-for", "5s", "--wedged-for", "10s",
 		"--timeout", timeout.String(), "--context", rc.kubeContext)
 	mf, err := os.CreateTemp("", "mole-metrics-*.json")
 	if err != nil {

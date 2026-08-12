@@ -228,8 +228,8 @@ func buildClient(ctxName string) (*kubernetes.Clientset, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load kubeconfig for context %q: %w", ctxName, err)
 	}
-	cfg.QPS = 100
-	cfg.Burst = 200
+	cfg.QPS = 300
+	cfg.Burst = 600
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build client: %w", err)

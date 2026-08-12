@@ -534,12 +534,11 @@ func controlHealthy() scenario {
 // settled (zero-replica) fleets and 3 identical crashers, so the whole run
 // must collapse to one cause. n == the fan-out scale point from the design.
 func fanout(name string, n int, full bool) scenario {
+	// The crashers wedge out in ~15-20s under the bench's 10s --wedged-for
+	// window; the large points get headroom for informer sync at scale.
 	timeout := 45 * time.Second
 	if n >= 500 {
-		timeout = 90 * time.Second
-	}
-	if n >= 5000 {
-		timeout = 150 * time.Second
+		timeout = 60 * time.Second
 	}
 	return scenario{
 		name: name,
@@ -575,18 +574,9 @@ func fanout(name string, n int, full bool) scenario {
 					return err
 				}
 			}
-			for i := 0; i < n-3; i++ {
-				ns, err := f.namespace("", nil)
-				if err != nil {
-					return err
-				}
-				if err := f.deployment(ns, "app", label, func(d *appsv1.Deployment) {
-					d.Spec.Replicas = ptr.To(int32(0))
-				}); err != nil {
-					return err
-				}
-			}
-			return nil
+			return f.fleetQuiet(n-3, label, func(d *appsv1.Deployment) {
+				d.Spec.Replicas = ptr.To(int32(0))
+			})
 		},
 		// The scenario is a converged fleet with three crashers, not a race
 		// against the controller's own queue: at 5000 deployments the

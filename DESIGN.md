@@ -152,7 +152,9 @@ acting on that will propose 12 unrelated fixes instead of one.
 
 At minimum:
 
-- Node-level cause collapses pod-level symptoms on that node
+- Node-level cause collapses pod-level symptoms on that node — surfaced as
+  the `NodeNotReady` signature, whose cause names the node and never the
+  pod, so identical-cause collapse folds every pod on it into one entry
 - Identical signature + identical cause string across resources collapses into
   one entry with a count and up to 3 example refs
 

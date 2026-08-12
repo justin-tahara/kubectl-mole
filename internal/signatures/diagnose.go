@@ -45,6 +45,7 @@ func Diagnose(ctx context.Context, cs kubernetes.Interface, target TargetRef, po
 		PVC:       d.pvc,
 		PVCEvents: d.pvcEvents,
 		CrashLogs: d.crashLogs,
+		Node:      d.node,
 	}
 
 	var findings []Finding
@@ -69,12 +70,14 @@ type diagnoser struct {
 	cs     kubernetes.Interface
 	target TargetRef
 
-	events    []corev1.Event
-	eventsOK  bool
-	pvcCache  map[string]*corev1.PersistentVolumeClaim
-	degraded  []string
-	logDenied bool
-	pvcDenied bool
+	events     []corev1.Event
+	eventsOK   bool
+	pvcCache   map[string]*corev1.PersistentVolumeClaim
+	nodeCache  map[string]*corev1.Node
+	degraded   []string
+	logDenied  bool
+	pvcDenied  bool
+	nodeDenied bool
 }
 
 func (d *diagnoser) note(msg string) {
@@ -153,6 +156,32 @@ func (d *diagnoser) pvc(name string) *corev1.PersistentVolumeClaim {
 	}
 	d.pvcCache[name] = pvc
 	return pvc
+}
+
+// node fetches one node by name — never a cluster-wide list; a workload's
+// pods sit on few nodes. Denial degrades node-level analysis, it never fails
+// the diagnosis.
+func (d *diagnoser) node(name string) *corev1.Node {
+	if d.nodeDenied {
+		return nil
+	}
+	if d.nodeCache == nil {
+		d.nodeCache = map[string]*corev1.Node{}
+	}
+	if n, ok := d.nodeCache[name]; ok {
+		return n
+	}
+	n, err := d.cs.CoreV1().Nodes().Get(d.ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsForbidden(err) {
+			d.nodeDenied = true
+			d.note("cannot read nodes: node-level analysis skipped")
+		}
+		d.nodeCache[name] = nil
+		return nil
+	}
+	d.nodeCache[name] = n
+	return n
 }
 
 // crashLogs fetches the log tail of the container's most recent crashed
@@ -275,14 +304,16 @@ func (d *diagnoser) replicaSetFailures() []string {
 	return msgs
 }
 
-// dedupIdentical removes findings that state the same signature and cause —
-// the same fact seen through two sources (an RS condition and its event), not
-// causal collapse, which is a later milestone.
+// dedupIdentical removes findings that state the same fact about the same
+// resource through two sources (an RS condition and its event). The anchor
+// pod is part of the key: identical causes on different pods are distinct
+// facts, and the collapse layer needs their multiplicity to count affected
+// resources.
 func dedupIdentical(in []Finding) []Finding {
 	seen := map[string]bool{}
 	var out []Finding
 	for _, f := range in {
-		key := f.Signature + "\x00" + f.Cause
+		key := f.Signature + "\x00" + f.Cause + "\x00" + f.Pod
 		if seen[key] {
 			continue
 		}

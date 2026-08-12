@@ -41,6 +41,8 @@ type Context struct {
 	// CrashLogs returns the log tail of the container's most recent crashed
 	// instance, or "" when unavailable.
 	CrashLogs func(pod *corev1.Pod, status corev1.ContainerStatus) string
+	// Node fetches a node by name; nil when unreadable or absent.
+	Node func(name string) *corev1.Node
 }
 
 // podDetector diagnoses one pod. Detectors run in the order below and the
@@ -53,6 +55,7 @@ type podDetector struct {
 }
 
 var podDetectors = []podDetector{
+	{"NodeNotReady", detectNodeNotReady},
 	{"PVCPending", detectPVCPending},
 	{"PodUnschedulable", detectUnschedulable},
 	{"OOMKilled", detectOOMKilled},

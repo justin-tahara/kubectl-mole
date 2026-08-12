@@ -34,9 +34,13 @@ success is how a typoed namespace ships to prod.
 
 - `failures[].signature` is a stable enum: `ImagePullBackOff`,
   `CrashLoopBackOff`, `PodUnschedulable`, `PVCPending`, `OOMKilled`,
-  `ProbeFailing`, `AdmissionRejected`, `QuotaExceeded`.
+  `ProbeFailing`, `AdmissionRejected`, `QuotaExceeded`, `NodeNotReady`.
 - `failures[].chain` is the ownership walk from workload to pod
   (`Deployment/api → ReplicaSet/api-7f9c → Pod/api-7f9c-x2k`).
+- Findings sharing a signature and cause are collapsed into one entry:
+  `affected` counts the resources, `examples` names up to three. Forty pods
+  failing on one dead node is one `NodeNotReady` entry with
+  `"affected": 40` — one fix, not forty.
 - `summary` counts current-revision pods. `"failed": 3` of `"total": 47`
   means diagnose those 3, not the workload wholesale.
 - `degraded[]` lists reads RBAC denied and the analysis skipped as a result.

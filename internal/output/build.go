@@ -6,7 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/justin-tahara/kubectl-mole/internal/signatures"
+	"github.com/justin-tahara/kubectl-mole/internal/collapse"
 )
 
 // Input carries everything the builder needs for one watched workload.
@@ -18,13 +18,16 @@ type Input struct {
 	Reason    string
 	Elapsed   time.Duration
 	// Pods are the current-revision pods at the end of the watch.
-	Pods   []*corev1.Pod
-	Report signatures.Report
+	Pods []*corev1.Pod
+	// Failures are the collapsed findings, in collapse order.
+	Failures []collapse.Entry
+	// Degraded lists reads that were denied and the analysis skipped.
+	Degraded []string
 }
 
 // Build assembles the schemaVersion "1" verdict. Ordering is inherited from
-// the report (workload-level findings first, then pods sorted by name), so
-// the output is deterministic.
+// the collapse layer (workload-level findings first, then pods sorted by
+// name), so the output is deterministic.
 func Build(in Input) Verdict {
 	v := Verdict{
 		SchemaVersion: SchemaVersion,
@@ -33,20 +36,20 @@ func Build(in Input) Verdict {
 		Namespace:     in.Namespace,
 		Reason:        in.Reason,
 		Elapsed:       in.Elapsed.Round(time.Second).String(),
-		Summary:       summarize(in.Pods, in.Report.Findings),
+		Summary:       summarize(in.Pods, in.Failures),
 		Failures:      []Failure{},
-		Degraded:      append([]string{}, in.Report.Degraded...),
+		Degraded:      append([]string{}, in.Degraded...),
 	}
-	for _, f := range in.Report.Findings {
+	for _, e := range in.Failures {
 		out := Failure{
-			Signature: f.Signature,
-			Cause:     f.Cause,
-			Chain:     strings.Join(f.Chain, " → "),
-			Affected:  1,
-			Examples:  []string{in.Namespace + "/" + in.Name},
+			Signature: e.Signature,
+			Cause:     e.Cause,
+			Chain:     strings.Join(e.Chain, " → "),
+			Affected:  e.Affected,
+			Examples:  append([]string{}, e.Examples...),
 			Evidence:  []Evidence{},
 		}
-		for _, ev := range f.Evidence {
+		for _, ev := range e.Evidence {
 			out.Evidence = append(out.Evidence, Evidence{Source: ev.Source, Untrusted: true, Text: ev.Text})
 		}
 		v.Failures = append(v.Failures, out)
@@ -84,7 +87,7 @@ func errorVerdict(kind, name, namespace, status, reason string) Verdict {
 	return v
 }
 
-func summarize(pods []*corev1.Pod, findings []signatures.Finding) Summary {
+func summarize(pods []*corev1.Pod, entries []collapse.Entry) Summary {
 	s := Summary{Total: len(pods)}
 	for _, p := range pods {
 		if podIsReady(p) {
@@ -92,9 +95,9 @@ func summarize(pods []*corev1.Pod, findings []signatures.Finding) Summary {
 		}
 	}
 	failed := map[string]bool{}
-	for _, f := range findings {
-		if f.Pod != "" {
-			failed[f.Pod] = true
+	for _, e := range entries {
+		for _, p := range e.Pods {
+			failed[p] = true
 		}
 	}
 	s.Failed = len(failed)

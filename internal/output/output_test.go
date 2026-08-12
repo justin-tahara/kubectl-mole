@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/justin-tahara/kubectl-mole/internal/collapse"
 	"github.com/justin-tahara/kubectl-mole/internal/signatures"
 )
 
@@ -32,16 +33,16 @@ func failedInput() Input {
 		Reason:    "pod api-7f9c-x2k: container main in CrashLoopBackOff",
 		Elapsed:   94 * time.Second,
 		Pods:      []*corev1.Pod{pod("api-7f9c-a", true), pod("api-7f9c-x2k", false)},
-		Report: signatures.Report{
-			Findings: []signatures.Finding{{
-				Signature: "CrashLoopBackOff",
-				Cause:     "container main is crash-looping (last exit code 7)",
-				Chain:     []string{"Deployment/api", "ReplicaSet/api-7f9c", "Pod/api-7f9c-x2k"},
-				Evidence:  []signatures.Evidence{{Source: "log", Text: "panic: boom\ngoodbye"}},
-				Pod:       "api-7f9c-x2k",
-			}},
-			Degraded: []string{"cannot read pods/log: log evidence omitted"},
-		},
+		Failures: []collapse.Entry{{
+			Signature: "CrashLoopBackOff",
+			Cause:     "container main is crash-looping (last exit code 7)",
+			Chain:     []string{"Deployment/api", "ReplicaSet/api-7f9c", "Pod/api-7f9c-x2k"},
+			Evidence:  []signatures.Evidence{{Source: "log", Text: "panic: boom\ngoodbye"}},
+			Affected:  1,
+			Examples:  []string{"prod/api-7f9c-x2k"},
+			Pods:      []string{"api-7f9c-x2k"},
+		}},
+		Degraded: []string{"cannot read pods/log: log evidence omitted"},
 	}
 }
 
@@ -64,8 +65,8 @@ func TestBuildFailedVerdict(t *testing.T) {
 	if f.Chain != "Deployment/api → ReplicaSet/api-7f9c → Pod/api-7f9c-x2k" {
 		t.Fatalf("chain %q should join with the arrow", f.Chain)
 	}
-	if f.Affected != 1 || len(f.Examples) != 1 || f.Examples[0] != "prod/api" {
-		t.Fatalf("affected %d examples %v, want 1/[prod/api]", f.Affected, f.Examples)
+	if f.Affected != 1 || len(f.Examples) != 1 || f.Examples[0] != "prod/api-7f9c-x2k" {
+		t.Fatalf("affected %d examples %v, want 1/[prod/api-7f9c-x2k]", f.Affected, f.Examples)
 	}
 	if !f.Evidence[0].Untrusted {
 		t.Fatal("evidence must be marked untrusted")
@@ -84,7 +85,7 @@ func TestContentHashExcludesElapsed(t *testing.T) {
 		t.Fatal("hash must not change when only elapsed differs")
 	}
 	in = failedInput()
-	in.Report.Findings[0].Cause = "different"
+	in.Failures[0].Cause = "different"
 	c := Build(in)
 	if a.ContentHash == c.ContentHash {
 		t.Fatal("hash must change when a cause changes")

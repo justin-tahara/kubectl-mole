@@ -2,9 +2,9 @@
 
 > digs down to what actually broke
 
-**Status: pre-alpha (M3).** Settle detection, the 8-signature failure
-catalogue, the versioned output schema, and the full exit-code taxonomy are
-implemented and tested against kind. Not yet done: causal collapse, token
+**Status: pre-alpha (M4).** Settle detection, the failure-signature
+catalogue, the versioned output schema, the full exit-code taxonomy, and
+causal collapse are implemented and tested against kind. Not yet done: token
 budgets, `--all-namespaces` fan-out, benchmarks — see [DESIGN.md](DESIGN.md)
 for the milestone order.
 

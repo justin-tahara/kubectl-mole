@@ -18,6 +18,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/justin-tahara/kubectl-mole/internal/collapse"
 	"github.com/justin-tahara/kubectl-mole/internal/output"
 	"github.com/justin-tahara/kubectl-mole/internal/settle"
 	"github.com/justin-tahara/kubectl-mole/internal/signatures"
@@ -145,7 +146,8 @@ func (o *options) run(ctx context.Context, args []string) error {
 		Reason:    res.Reason,
 		Elapsed:   res.Elapsed,
 		Pods:      res.Final.CurrentPods,
-		Report:    rep,
+		Failures:  collapse.Collapse(ns, rep.Findings),
+		Degraded:  rep.Degraded,
 	}))
 }
 

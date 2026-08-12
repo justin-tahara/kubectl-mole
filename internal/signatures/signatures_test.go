@@ -7,8 +7,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
@@ -31,6 +34,7 @@ func emptyCtx() *Context {
 		PVC:       func(string) *corev1.PersistentVolumeClaim { return nil },
 		PVCEvents: func(string) []corev1.Event { return nil },
 		CrashLogs: func(*corev1.Pod, corev1.ContainerStatus) string { return "" },
+		Node:      func(string) *corev1.Node { return nil },
 	}
 }
 
@@ -369,5 +373,96 @@ func TestCrashLogsInstanceSelection(t *testing.T) {
 		if previous[i] != want[i] {
 			t.Fatalf("fetch %d: previous=%v, want %v", i, previous[i], want[i])
 		}
+	}
+}
+
+func notReadyNode(name string) *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{
+			Type:    corev1.NodeReady,
+			Status:  corev1.ConditionUnknown,
+			Reason:  "NodeStatusUnknown",
+			Message: "Kubelet stopped posting node status.",
+		}}},
+	}
+}
+
+// TestNodeNotReadyOutranksPodSymptoms pins the collapse priority: a pod may
+// exhibit any symptom, but a dead node underneath it is the deeper cause.
+func TestNodeNotReadyOutranksPodSymptoms(t *testing.T) {
+	p := basePod("a")
+	p.Spec.NodeName = "worker-1"
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  "main",
+		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+	}}
+	c := emptyCtx()
+	c.Node = func(name string) *corev1.Node {
+		if name != "worker-1" {
+			t.Fatalf("looked up wrong node %q", name)
+		}
+		return notReadyNode("worker-1")
+	}
+	f := diagnosePod(c, p)
+	if f == nil || f.Signature != "NodeNotReady" {
+		t.Fatalf("want NodeNotReady over the crash-loop symptom, got %+v", f)
+	}
+	if !strings.Contains(f.Cause, `"worker-1"`) || !strings.Contains(f.Cause, "NodeStatusUnknown") {
+		t.Fatalf("cause should name node and reason, got %q", f.Cause)
+	}
+	if len(f.Evidence) == 0 || !strings.Contains(f.Evidence[0].Text, "Kubelet stopped") {
+		t.Fatalf("node condition message missing from evidence: %+v", f.Evidence)
+	}
+}
+
+func TestNodeNotReadyIgnoresReadyPod(t *testing.T) {
+	p := basePod("a")
+	p.Spec.NodeName = "worker-1"
+	p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	c := emptyCtx()
+	c.Node = func(string) *corev1.Node { return notReadyNode("worker-1") }
+	if f := diagnosePod(c, p); f != nil && f.Signature == "NodeNotReady" {
+		t.Fatalf("a ready pod is not a node symptom, got %+v", f)
+	}
+}
+
+func TestNodeNotReadyIgnoresHealthyNode(t *testing.T) {
+	p := basePod("a")
+	p.Spec.NodeName = "worker-1"
+	n := notReadyNode("worker-1")
+	n.Status.Conditions[0].Status = corev1.ConditionTrue
+	c := emptyCtx()
+	c.Node = func(string) *corev1.Node { return n }
+	if f := diagnosePod(c, p); f != nil && f.Signature == "NodeNotReady" {
+		t.Fatalf("a ready node must not fire, got %+v", f)
+	}
+}
+
+// TestDiagnoseNodesDenied proves node-read denial degrades: the pod's own
+// symptom still surfaces and the skipped analysis is recorded.
+func TestDiagnoseNodesDenied(t *testing.T) {
+	pod := basePod("api-1")
+	pod.Spec.NodeName = "worker-1"
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  "main",
+		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+	}}
+	cs := fake.NewClientset()
+	cs.PrependReactor("get", "nodes", func(ktesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "nodes"}, "", nil)
+	})
+	rep := Diagnose(context.Background(), cs, TargetRef{Kind: "Deployment", Namespace: "ns", Name: "api"}, []*corev1.Pod{pod})
+	if len(rep.Findings) != 1 || rep.Findings[0].Signature != "CrashLoopBackOff" {
+		t.Fatalf("pod symptom must survive node denial, got %+v", rep.Findings)
+	}
+	found := false
+	for _, m := range rep.Degraded {
+		if strings.Contains(m, "cannot read nodes") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("node denial missing from degraded: %v", rep.Degraded)
 	}
 }

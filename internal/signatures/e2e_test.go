@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/utils/ptr"
 
+	"github.com/justin-tahara/kubectl-mole/internal/collapse"
 	"github.com/justin-tahara/kubectl-mole/internal/settle"
 	"github.com/justin-tahara/kubectl-mole/internal/signatures"
 )
@@ -281,5 +282,56 @@ func create(t *testing.T, cs *kubernetes.Clientset, ns string, d *appsv1.Deploym
 	t.Helper()
 	if _, err := cs.AppsV1().Deployments(ns).Create(context.Background(), d, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create deployment: %v", err)
+	}
+}
+
+// TestE2EIdenticalCausesCollapse reproduces the dedup mandate live: three
+// replicas crashing for the same reason must fold into one entry with
+// affected: 3, not three findings a consumer would chase separately.
+func TestE2EIdenticalCausesCollapse(t *testing.T) {
+	cs := client(t)
+	ns := testNamespace(t, cs)
+	create(t, cs, ns, newDeployment("crashtrio", func(d *appsv1.Deployment) {
+		d.Spec.Replicas = ptr.To(int32(3))
+		d.Spec.Template.Spec.Containers[0].Command = []string{"sh", "-c", "sleep 1; exit 7"}
+	}))
+
+	target := settle.Target{Kind: settle.KindDeployment, Namespace: ns, Name: "crashtrio"}
+	res, err := settle.Run(context.Background(), cs, target,
+		settle.Options{Timeout: 40 * time.Second, StableFor: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("settle.Run: %v", err)
+	}
+	if res.Outcome == settle.OutcomeSettled {
+		t.Fatal("scenario unexpectedly settled")
+	}
+
+	// Pods reach the exit-code-bearing cause at different times; poll until
+	// all three share it and collapse to a single entry.
+	ref := signatures.TargetRef{Kind: "Deployment", Namespace: ns, Name: "crashtrio"}
+	deadline := time.Now().Add(60 * time.Second)
+	var entries []collapse.Entry
+	for {
+		pods := listPods(t, cs, ns, "crashtrio")
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		rep := signatures.Diagnose(ctx, cs, ref, pods)
+		cancel()
+		entries = collapse.Collapse(ns, rep.Findings)
+		if len(entries) == 1 && entries[0].Signature == "CrashLoopBackOff" && entries[0].Affected == 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no single collapsed entry with affected=3 before deadline; entries: %+v", entries)
+		}
+		time.Sleep(2 * time.Second)
+	}
+	e := entries[0]
+	if len(e.Examples) != 3 || len(e.Pods) != 3 {
+		t.Fatalf("want 3 examples and 3 pods, got %+v", e)
+	}
+	for _, ex := range e.Examples {
+		if !strings.HasPrefix(ex, ns+"/crashtrio-") {
+			t.Fatalf("examples must be namespace-qualified pod refs, got %v", e.Examples)
+		}
 	}
 }

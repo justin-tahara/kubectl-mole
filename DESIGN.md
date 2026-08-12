@@ -388,12 +388,15 @@ any scenario's output grows beyond a threshold.
 - **Apache 2.0.** Explicit patent grant, and the licence CNCF requires. CI
   checks dependency licences so a copyleft transitive dependency cannot land
   unnoticed.
-- **DCO, not a CLA.** `Signed-off-by` required; no legal step before a first
+- **DCO, not a CLA.** `Signed-off-by` required — the `dco` CI check
+  enforces it on every PR commit — and no legal step before a first
   contribution.
 - The contribution machinery is optimised for one PR shape: adding a
-  signature. `make new-signature NAME=Foo` scaffolds the detector, its unit
-  test, and a bench scenario stub. Every new signature PR must include a
-  reproducible bench scenario.
+  signature. CONTRIBUTING.md walks the six places a signature touches,
+  with a small real detector as the template to crib from — a worked
+  example over generator machinery. Every new signature PR includes a
+  reproducible bench scenario when the failure can be staged
+  deterministically.
 
 ## Milestone order
 

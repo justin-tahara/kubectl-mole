@@ -40,6 +40,17 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       # syft generates the per-archive SBOMs goreleaser attaches.
       - uses: anchore/sbom-action/download-syft@v0
+      # The six cross-compiles are ~80% of the pipeline (~350s cold), and
+      # setup-go's cache key is shared with CI, which only ever saves
+      # linux/amd64 artifacts. A release-scoped build cache turns repeat
+      # releases on unchanged deps into relinks.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: release-gobuild-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.ref_name }}
+          restore-keys: |
+            release-gobuild-${{ hashFiles('go.mod', 'go.sum') }}-
+            release-gobuild-
       # scripts/goreleaser.sh: pinned, checksum-verified, retried — the
       # action's un-retried binary download cost the v0.2.0 release a rerun.
       - name: goreleaser release

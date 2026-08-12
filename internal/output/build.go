@@ -54,7 +54,7 @@ func Build(in Input) Verdict {
 		}
 		v.Failures = append(v.Failures, out)
 	}
-	v.ContentHash = contentHash(v)
+	v.ContentHash = Hash(v)
 	return v
 }
 
@@ -83,7 +83,7 @@ func errorVerdict(kind, name, namespace, status, reason string) Verdict {
 		Failures:      []Failure{},
 		Degraded:      []string{},
 	}
-	v.ContentHash = contentHash(v)
+	v.ContentHash = Hash(v)
 	return v
 }
 

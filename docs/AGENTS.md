@@ -9,12 +9,18 @@ same output, every time. No sampling, no model, no prose to parse.
 After applying a change:
 
 ```
-kubectl mole deployment/api -n prod -o json --timeout 2m
+kubectl mole deployment/api -n prod -o json --budget 800
 ```
 
 Always use `-o json`. The text formatter is for humans; the JSON schema is
 versioned (`schemaVersion: "1"`) and its field names are stable — additive
 changes only within a version.
+
+Set `--budget` to what your context can afford — 600 to 1000 tokens is a
+good range. The verdict fills in tier order (status and counts always, then
+failure entries, then evidence) and stops when the budget is spent, so you
+get the most diagnostic value the budget allows and `truncated` tells you
+what was cut.
 
 ## Exit codes are the contract
 
@@ -81,9 +87,9 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | Flag | Default | Note |
 |---|---|---|
 | `-o json` | `text` | Always set this. |
+| `--budget` | `0` (unlimited) | Approximate output token budget (~4 chars/token, advisory). 600–1000 works well. |
 | `--timeout` | `2m` | Wall-clock budget for the watch. Slow-starting apps deserve more. |
 | `--stable-for` | `15s` | How long healthy must hold continuously. Raise it for apps that crash late. |
 
-A token budget flag (`--budget`) ships in a later milestone. Until then the
-verdict is already compact: evidence is clipped per item and truncation is
-always marked.
+Even unbudgeted output stays compact: evidence is clipped per item and every
+truncation — clip or drop — is marked.

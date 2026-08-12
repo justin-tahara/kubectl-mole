@@ -2,10 +2,10 @@
 
 > digs down to what actually broke
 
-**Status: pre-alpha (M4).** Settle detection, the failure-signature
-catalogue, the versioned output schema, the full exit-code taxonomy, and
-causal collapse are implemented and tested against kind. Not yet done: token
-budgets, `--all-namespaces` fan-out, benchmarks — see [DESIGN.md](DESIGN.md)
+**Status: pre-alpha (M5).** Settle detection, the failure-signature
+catalogue, the versioned output schema, the full exit-code taxonomy, causal
+collapse, and the token budget are implemented and tested against kind. Not
+yet done: `--all-namespaces` fan-out, benchmarks — see [DESIGN.md](DESIGN.md)
 for the milestone order.
 
 `kubectl mole` watches Kubernetes resources until they settle, then emits one
@@ -34,6 +34,7 @@ release binaries come once the tool does something useful.
 ```
 kubectl mole deployment/api -n prod
 kubectl mole sts/db --timeout 3m --stable-for 20s -o json
+kubectl mole deployment/api -n prod -o json --budget 800
 ```
 
 The command watches the workload until it settles or the timeout passes, then

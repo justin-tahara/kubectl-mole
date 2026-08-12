@@ -18,6 +18,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/justin-tahara/kubectl-mole/internal/budget"
 	"github.com/justin-tahara/kubectl-mole/internal/collapse"
 	"github.com/justin-tahara/kubectl-mole/internal/output"
 	"github.com/justin-tahara/kubectl-mole/internal/settle"
@@ -35,6 +36,7 @@ type options struct {
 	output      string
 	timeout     time.Duration
 	stableFor   time.Duration
+	budget      int
 	streams     genericiooptions.IOStreams
 
 	// exitCode is the verdict's exit code: 0 settled, 1 failed, 2 timed out
@@ -77,6 +79,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "output format: text or json")
 	cmd.Flags().DurationVar(&o.timeout, "timeout", 2*time.Minute, "max wall-clock time to wait for settle")
 	cmd.Flags().DurationVar(&o.stableFor, "stable-for", 15*time.Second, "how long a healthy state must hold before it counts as settled")
+	cmd.Flags().IntVar(&o.budget, "budget", 0, "approximate token budget for output; 0 = unlimited (advisory, ~4 chars/token)")
 	o.configFlags.AddFlags(cmd.Flags())
 	return cmd
 }
@@ -176,8 +179,10 @@ func statusFor(o settle.Outcome) string {
 	return output.StatusFailed
 }
 
-// emit writes the verdict in the chosen format and records its exit code.
+// emit trims the verdict to the token budget, writes it in the chosen
+// format, and records its exit code.
 func (o *options) emit(v output.Verdict) error {
+	v = budget.Apply(v, o.budget)
 	o.exitCode = v.ExitCode()
 	if o.output == "json" {
 		return output.WriteJSON(o.streams.Out, v)

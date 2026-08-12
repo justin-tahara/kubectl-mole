@@ -101,10 +101,11 @@ func (v Verdict) ExitCode() int {
 	return ExitFailed
 }
 
-// contentHash hashes the verdict with elapsed and the hash itself cleared, so
-// two runs that observed the same state produce the same hash — the cheap
-// "nothing moved" check a future delta mode needs.
-func contentHash(v Verdict) string {
+// Hash computes the verdict's content hash: the verdict with elapsed and the
+// hash itself cleared, so two runs that observed the same state produce the
+// same hash — the cheap "nothing moved" check a future delta mode needs.
+// Exported so the budget layer can rehash after trimming.
+func Hash(v Verdict) string {
 	v.Elapsed = ""
 	v.ContentHash = ""
 	b, err := json.Marshal(v)

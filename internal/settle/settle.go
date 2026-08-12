@@ -6,6 +6,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 
@@ -100,30 +101,57 @@ func Run(parent context.Context, cs kubernetes.Interface, target Target, opts Op
 
 	pctx, pcancel := context.WithTimeout(parent, opts.Timeout)
 	stopPreflight := perf.Phase("preflight")
-	err := preflight(pctx, cs, target)
+	scope, err := preflight(pctx, cs, target)
 	stopPreflight()
 	pcancel()
 	if err != nil {
 		return Result{}, err
 	}
 
-	factory := informers.NewSharedInformerFactoryWithOptions(cs, 0, informers.WithNamespace(target.Namespace))
-	src, err := newSource(factory, target)
+	// Two factories, like the fleet path: the workload's own informer is
+	// pinned to its name, and the related objects (pods, ReplicaSets,
+	// ControllerRevisions) are scoped by the workload's selector — in a
+	// shared namespace, watching one deployment must not cache every pod
+	// in it. An empty scope (CronJob, missing selector) stays unfiltered.
+	wf := informers.NewSharedInformerFactoryWithOptions(cs, 0,
+		informers.WithNamespace(target.Namespace),
+		informers.WithTransform(stripManagedFields),
+		informers.WithTweakListOptions(func(o *metav1.ListOptions) {
+			o.FieldSelector = "metadata.name=" + target.Name
+		}))
+	// One tweak func for both dimensions: WithTweakListOptions overwrites
+	// rather than composes, so a second option would erase the first.
+	rf := informers.NewSharedInformerFactoryWithOptions(cs, 0,
+		informers.WithNamespace(target.Namespace),
+		informers.WithTransform(stripManagedFields),
+		informers.WithTweakListOptions(func(o *metav1.ListOptions) {
+			if scope.labelSelector != "" {
+				o.LabelSelector = scope.labelSelector
+			}
+			if scope.fieldSelector != "" {
+				o.FieldSelector = scope.fieldSelector
+			}
+		}))
+	src, err := newSource(wf, rf, target)
 	if err != nil {
 		return Result{}, err
 	}
 	// Shutdown blocks until the informer goroutines exit, and they exit on
 	// context cancel — so cancel (registered later, LIFO) must run first, or
 	// a settled verdict hangs until the full timeout.
-	defer factory.Shutdown()
+	defer wf.Shutdown()
+	defer rf.Shutdown()
 	ctx, cancel := context.WithTimeout(parent, opts.Timeout)
 	defer cancel()
 	stopSync := perf.Phase("sync")
-	factory.Start(ctx.Done())
-	for _, ok := range factory.WaitForCacheSync(ctx.Done()) {
-		if !ok {
-			stopSync()
-			return Result{}, fmt.Errorf("timed out syncing informer caches for %s", target)
+	wf.Start(ctx.Done())
+	rf.Start(ctx.Done())
+	for _, f := range []informers.SharedInformerFactory{wf, rf} {
+		for _, ok := range f.WaitForCacheSync(ctx.Done()) {
+			if !ok {
+				stopSync()
+				return Result{}, fmt.Errorf("timed out syncing informer caches for %s", target)
+			}
 		}
 	}
 	stopSync()

@@ -66,15 +66,15 @@ and signal density: [bench/RESULTS.md](bench/RESULTS.md).
 
 | Scenario | mole | expert kubectl | naive kubectl | kubectl-status |
 |---|---|---|---|---|
-| CrashLoopBackOff | **347 ✓** (1 cmd) | 928 ✓ (3 cmds) | 3,561 ✓ (4 cmds) | 375 ✗ |
+| CrashLoopBackOff | **347 ✓** (1 cmd) | 925 ✓ (3 cmds) | 3,544 ✓ (4 cmds) | 374 ✗ |
 | Node dies under 2 workloads | **555 ✓** | 1,941 ✓ | 10,033 ✓ | 924 ✗ |
-| Fan-out, 50 namespaces | **631 ✓** | 2,750 ✓ | 79,140 ✓ | 9,248 ✓ |
-| Fan-out, 5,000 namespaces | **671 ✓** | 133,075 ✓ | 4,519,771 ✓ | 131,457 ✗ |
+| Fan-out, 50 namespaces | **625 ✓** | 2,762 ✓ | 79,090 ✓ | 9,259 ✗ |
+| Fan-out, 5,000 namespaces | **663 ✓** | 133,486 ✓ | 4,539,921 ✓ | 131,670 ✓ |
 
 The honest comparison is the expert column — the minimal hand-tuned sequence
 a good SRE runs. mole reaches the same answer in one invocation at roughly a
-third of the tokens, and its output stays flat as the fleet grows: 631
-tokens at 50 namespaces, 671 at 5,000, because identical causes collapse
+third of the tokens, and its output stays flat as the fleet grows: 625
+tokens at 50 namespaces, 663 at 5,000, because identical causes collapse
 into one entry and healthy workloads are counted, never enumerated. Across
 all 15 failure scenarios in the corpus, mole's output contains the ground
 truth 15 times.

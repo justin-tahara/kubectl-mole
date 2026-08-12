@@ -68,22 +68,59 @@ type Summary struct {
 type Truncated struct {
 	Failures int `json:"failures"`
 	Evidence int `json:"evidence"`
+	// Namespaces counts dropped per-namespace verdict entries (fan-out only).
+	Namespaces int `json:"namespaces"`
+}
+
+// FleetCounts summarizes a fan-out run's targets by outcome. Namespaces
+// counts the distinct namespaces the fleet spans, settled ones included.
+type FleetCounts struct {
+	Targets     int `json:"targets"`
+	Settled     int `json:"settled"`
+	Failed      int `json:"failed"`
+	Progressing int `json:"progressing"`
+	Namespaces  int `json:"namespaces"`
+}
+
+// TargetVerdict is one non-settled fleet target inside a namespace entry.
+type TargetVerdict struct {
+	Target string `json:"target"`
+	Status string `json:"status"`
+	Reason string `json:"reason"`
+}
+
+// NamespaceVerdict groups the non-settled targets of one namespace. Settled
+// targets are counted in fleet, never enumerated: a caller asking "did this
+// land" needs the failures, not hundreds of healthy workloads listed.
+type NamespaceVerdict struct {
+	Namespace string          `json:"namespace"`
+	Status    string          `json:"status"`
+	Targets   []TargetVerdict `json:"targets"`
 }
 
 // Verdict is the schemaVersion "1" output. Field names are the product:
-// agents and CI pipelines bind to them.
+// agents and CI pipelines bind to them. The fan-out fields (selector, fleet,
+// namespaces) are additive: single-target verdicts omit them.
 type Verdict struct {
-	SchemaVersion string    `json:"schemaVersion"`
-	Status        string    `json:"status"`
-	Target        string    `json:"target"`
-	Namespace     string    `json:"namespace"`
-	Reason        string    `json:"reason"`
-	Elapsed       string    `json:"elapsed"`
-	Summary       Summary   `json:"summary"`
-	Failures      []Failure `json:"failures"`
-	Degraded      []string  `json:"degraded"`
-	Truncated     Truncated `json:"truncated"`
-	ContentHash   string    `json:"contentHash"`
+	SchemaVersion string `json:"schemaVersion"`
+	Status        string `json:"status"`
+	Target        string `json:"target"`
+	Namespace     string `json:"namespace"`
+	// Selector is the label selector of a fan-out run; "*" in Namespace
+	// means the fan-out crossed all namespaces.
+	Selector string  `json:"selector,omitempty"`
+	Reason   string  `json:"reason"`
+	Elapsed  string  `json:"elapsed"`
+	Summary  Summary `json:"summary"`
+	// Fleet summarizes a fan-out run's targets by outcome.
+	Fleet *FleetCounts `json:"fleet,omitempty"`
+	// Namespaces holds per-namespace verdicts for the namespaces with
+	// non-settled targets, sorted by namespace name.
+	Namespaces  []NamespaceVerdict `json:"namespaces,omitempty"`
+	Failures    []Failure          `json:"failures"`
+	Degraded    []string           `json:"degraded"`
+	Truncated   Truncated          `json:"truncated"`
+	ContentHash string             `json:"contentHash"`
 }
 
 // ExitCode maps the verdict status to the process exit code.

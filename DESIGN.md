@@ -82,6 +82,8 @@ Examples:
 | `--all-namespaces` | false | Fan out across namespaces |
 | `-l, --selector` | | Label selector |
 | `-n, --namespace` | current | Namespace |
+| `--max-targets` | 5000 | Fan-out ceiling; a broader selection is refused |
+| `--qps`, `--burst` | 20, 30 | Client-side API rate limits |
 
 Standard kubeconfig flags (`--context`, `--kubeconfig`, `--namespace`, ...)
 come from `k8s.io/cli-runtime` `genericclioptions.ConfigFlags` and behave

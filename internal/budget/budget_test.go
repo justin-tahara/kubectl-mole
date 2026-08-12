@@ -125,3 +125,70 @@ func TestApplyIsDeterministic(t *testing.T) {
 		t.Fatal("same input and budget must produce identical output")
 	}
 }
+
+func fleetVerdict(namespaces int, failures ...output.Failure) output.Verdict {
+	v := verdict(failures...)
+	v.Target = "workloads"
+	v.Namespace = "*"
+	v.Selector = "part-of=platform"
+	v.Fleet = &output.FleetCounts{Targets: namespaces, Failed: namespaces, Namespaces: namespaces}
+	for i := 0; i < namespaces; i++ {
+		name := "tenant-" + strings.Repeat("z", 20) + string(rune('a'+i))
+		v.Namespaces = append(v.Namespaces, output.NamespaceVerdict{
+			Namespace: name,
+			Status:    output.StatusFailed,
+			Targets: []output.TargetVerdict{{
+				Target: "Deployment/api", Status: output.StatusFailed,
+				Reason: "pod api-x: container main in CrashLoopBackOff",
+			}},
+		})
+	}
+	v.ContentHash = output.Hash(v)
+	return v
+}
+
+// TestNamespacesDroppedBeforeFailures: when the budget cannot hold both, the
+// collapsed causes survive and the per-namespace enumeration goes first.
+func TestNamespacesDroppedBeforeFailures(t *testing.T) {
+	v := fleetVerdict(8, failure("a"))
+
+	bare := fleetVerdict(0, failure("a"))
+	got := Apply(v, Tokens(bare)+10)
+	if len(got.Failures) != 1 {
+		t.Fatalf("failure entry must survive namespace trimming, got %d failures", len(got.Failures))
+	}
+	if got.Truncated.Namespaces == 0 || len(got.Namespaces) == len(v.Namespaces) {
+		t.Fatalf("namespaces must be dropped and counted: kept %d, truncated %+v", len(got.Namespaces), got.Truncated)
+	}
+	if len(got.Namespaces)+got.Truncated.Namespaces != len(v.Namespaces) {
+		t.Fatalf("accounting mismatch: kept %d + truncated %d != %d", len(got.Namespaces), got.Truncated.Namespaces, len(v.Namespaces))
+	}
+}
+
+// TestEvidenceDroppedBeforeNamespaces: stripping evidence alone can satisfy
+// the budget; the namespace entries stay.
+func TestEvidenceDroppedBeforeNamespaces(t *testing.T) {
+	v := fleetVerdict(3, failure("a", strings.Repeat("x", 4000)))
+	stripped := fleetVerdict(3, failure("a"))
+	got := Apply(v, Tokens(stripped)+10)
+	if len(got.Namespaces) != 3 || got.Truncated.Namespaces != 0 {
+		t.Fatalf("namespaces must survive when dropping evidence suffices: %+v", got.Truncated)
+	}
+	if got.Truncated.Evidence != 1 {
+		t.Fatalf("evidence must be the first tier dropped, truncated %+v", got.Truncated)
+	}
+}
+
+// TestFleetSkeletonAlwaysEmitted: even budget 1 keeps status and counts.
+func TestFleetSkeletonAlwaysEmitted(t *testing.T) {
+	got := Apply(fleetVerdict(5, failure("a")), 1)
+	if got.Status != output.StatusFailed || got.Fleet == nil || got.Fleet.Targets != 5 {
+		t.Fatalf("skeleton must survive: %+v", got)
+	}
+	if len(got.Namespaces) != 0 || len(got.Failures) != 0 {
+		t.Fatalf("budget 1 keeps only the skeleton, got %d ns %d failures", len(got.Namespaces), len(got.Failures))
+	}
+	if got.Truncated.Namespaces != 5 || got.Truncated.Failures != 1 {
+		t.Fatalf("drops must be counted: %+v", got.Truncated)
+	}
+}

@@ -48,3 +48,39 @@ func TestStatusFor(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateSelection(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		sel     string
+		allNS   bool
+		wantErr bool
+	}{
+		{"named target", []string{"deployment/api"}, "", false, false},
+		{"bare fan-out", nil, "", false, false},
+		{"selector fan-out", nil, "app=x", true, false},
+		{"name plus selector", []string{"deployment/api"}, "app=x", false, true},
+		{"name plus all-namespaces", []string{"deployment/api"}, "", true, true},
+	}
+	for _, tc := range cases {
+		err := validateSelection(tc.args, tc.sel, tc.allNS)
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("%s: err=%v, wantErr=%v", tc.name, err, tc.wantErr)
+		}
+	}
+}
+
+func TestFleetErrorVerdictMapping(t *testing.T) {
+	v, ok := fleetErrorVerdict(&settle.NoMatchError{Selector: "app=x"}, "", "app=x")
+	if !ok || v.Status != output.StatusNoMatch || v.Selector != "app=x" {
+		t.Fatalf("no-match mapping: ok=%v %+v", ok, v)
+	}
+	v, ok = fleetErrorVerdict(&settle.PermissionError{Verb: "list", Resource: "pods"}, "prod", "")
+	if !ok || v.Status != output.StatusPermissionDenied {
+		t.Fatalf("permission mapping: ok=%v %+v", ok, v)
+	}
+	if _, ok = fleetErrorVerdict(&settle.OverCeilingError{Matched: 9000, Ceiling: 5000}, "", ""); ok {
+		t.Fatal("over-ceiling must stay a plain error: the cluster was never checked")
+	}
+}

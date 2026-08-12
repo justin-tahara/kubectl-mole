@@ -23,17 +23,20 @@ type Entry struct {
 	// Examples are namespace-qualified refs of up to maxExamples affected
 	// resources, in finding order.
 	Examples []string
-	// Pods lists every distinct pod anchored to this entry, for summary
-	// counting. Empty for workload-level entries.
+	// Pods lists every distinct pod anchored to this entry,
+	// namespace-qualified so a fan-out counts pods with the same name in
+	// different namespaces separately. Empty for workload-level entries.
 	Pods []string
 }
 
-// Collapse groups findings by signature and cause. A consumer acting on 40
-// symptom entries proposes 40 unrelated fixes; one entry with affected: 40
-// names the shared cause once. Findings arrive ordered (workload-level
-// first, then pods sorted by name) and groups keep first-appearance order,
-// so the output is deterministic.
-func Collapse(namespace string, findings []signatures.Finding) []Entry {
+// Collapse groups findings by signature and cause, across namespaces: each
+// finding carries its own namespace, so a fan-out where thousands of
+// namespaces fail for the same reason folds into one entry. A consumer
+// acting on 40 symptom entries proposes 40 unrelated fixes; one entry with
+// affected: 40 names the shared cause once. Findings arrive ordered
+// (workload-level first, then pods sorted by name) and groups keep
+// first-appearance order, so the output is deterministic.
+func Collapse(findings []signatures.Finding) []Entry {
 	entries := map[string]*Entry{}
 	anchors := map[string]map[string]bool{}
 	var order []string
@@ -46,7 +49,7 @@ func Collapse(namespace string, findings []signatures.Finding) []Entry {
 			anchors[key] = map[string]bool{}
 			order = append(order, key)
 		}
-		ref := anchorRef(namespace, f)
+		ref := anchorRef(f)
 		if anchors[key][ref] {
 			continue
 		}
@@ -56,7 +59,7 @@ func Collapse(namespace string, findings []signatures.Finding) []Entry {
 			e.Examples = append(e.Examples, ref)
 		}
 		if f.Pod != "" {
-			e.Pods = append(e.Pods, f.Pod)
+			e.Pods = append(e.Pods, f.Namespace+"/"+f.Pod)
 		}
 	}
 	out := make([]Entry, 0, len(order))
@@ -68,7 +71,7 @@ func Collapse(namespace string, findings []signatures.Finding) []Entry {
 
 // anchorRef names the resource a finding is anchored to: the pod for
 // pod-level findings, the workload itself for workload-level ones.
-func anchorRef(namespace string, f signatures.Finding) string {
+func anchorRef(f signatures.Finding) string {
 	name := f.Pod
 	if name == "" && len(f.Chain) > 0 {
 		name = f.Chain[0]
@@ -76,5 +79,5 @@ func anchorRef(namespace string, f signatures.Finding) string {
 			name = name[i+1:]
 		}
 	}
-	return namespace + "/" + name
+	return f.Namespace + "/" + name
 }

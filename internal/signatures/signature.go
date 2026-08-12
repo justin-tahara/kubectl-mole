@@ -24,6 +24,9 @@ type Finding struct {
 	// Pod names the pod a pod-level finding anchors to; empty for
 	// workload-level findings (admission, quota).
 	Pod string
+	// Namespace of the diagnosed workload. Set by Diagnose; the collapse
+	// layer needs it to keep anchors distinct across a fan-out.
+	Namespace string
 }
 
 // Context gives detectors read access to observed state. Fetchers return

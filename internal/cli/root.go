@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -32,12 +33,17 @@ var kindAliases = map[string]settle.Kind{
 }
 
 type options struct {
-	configFlags *genericclioptions.ConfigFlags
-	output      string
-	timeout     time.Duration
-	stableFor   time.Duration
-	budget      int
-	streams     genericiooptions.IOStreams
+	configFlags   *genericclioptions.ConfigFlags
+	output        string
+	timeout       time.Duration
+	stableFor     time.Duration
+	budget        int
+	selector      string
+	allNamespaces bool
+	maxTargets    int
+	qps           float32
+	burst         int
+	streams       genericiooptions.IOStreams
 
 	// exitCode is the verdict's exit code: 0 settled, 1 failed, 2 timed out
 	// while still progressing, 3 permission denied, 4 no resources matched.
@@ -62,12 +68,12 @@ func Execute(streams genericiooptions.IOStreams, version string) int {
 
 func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "kubectl-mole TYPE/NAME",
+		Use:     "kubectl-mole [TYPE/NAME]",
 		Short:   "Watch resources until they settle, then explain what broke",
-		Long:    "kubectl-mole watches Kubernetes resources until they settle, then emits one structured verdict explaining what happened and, if something failed, why.",
-		Example: "  kubectl mole deployment/api -n prod\n  kubectl mole sts/db --timeout 3m --stable-for 20s -o json",
+		Long:    "kubectl-mole watches Kubernetes resources until they settle, then emits one structured verdict explaining what happened and, if something failed, why.\n\nWith no TYPE/NAME argument it fans out over every Deployment, StatefulSet and DaemonSet in scope — one namespace, or all of them with --all-namespaces, optionally filtered by --selector.",
+		Example: "  kubectl mole deployment/api -n prod\n  kubectl mole sts/db --timeout 3m --stable-for 20s -o json\n  kubectl mole -n prod -l app.kubernetes.io/name=api\n  kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform -o json --budget 800",
 		Version: version,
-		Args:    cobra.RangeArgs(1, 2),
+		Args:    cobra.RangeArgs(0, 2),
 		// The command handles its own errors and exit codes; cobra should not
 		// print usage after a runtime failure.
 		SilenceUsage: true,
@@ -80,6 +86,11 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().DurationVar(&o.timeout, "timeout", 2*time.Minute, "max wall-clock time to wait for settle")
 	cmd.Flags().DurationVar(&o.stableFor, "stable-for", 15*time.Second, "how long a healthy state must hold before it counts as settled")
 	cmd.Flags().IntVar(&o.budget, "budget", 0, "approximate token budget for output; 0 = unlimited (advisory, ~4 chars/token)")
+	cmd.Flags().StringVarP(&o.selector, "selector", "l", "", "label selector for fan-out over workloads (instead of TYPE/NAME)")
+	cmd.Flags().BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "fan out across all namespaces")
+	cmd.Flags().IntVar(&o.maxTargets, "max-targets", settle.DefaultMaxTargets, "refuse a fan-out matching more workloads than this")
+	cmd.Flags().Float32Var(&o.qps, "qps", 20, "client-side API request rate (queries per second)")
+	cmd.Flags().IntVar(&o.burst, "burst", 30, "client-side API request burst allowance")
 	o.configFlags.AddFlags(cmd.Flags())
 	return cmd
 }
@@ -107,8 +118,7 @@ func (o *options) run(ctx context.Context, args []string) error {
 	if o.output != "text" && o.output != "json" {
 		return fmt.Errorf("unknown output format %q (want text or json)", o.output)
 	}
-	kind, name, err := parseTarget(args)
-	if err != nil {
+	if err := validateSelection(args, o.selector, o.allNamespaces); err != nil {
 		return err
 	}
 
@@ -120,11 +130,24 @@ func (o *options) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load kubeconfig: %w", err)
 	}
+	cfg.QPS = o.qps
+	cfg.Burst = o.burst
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("build client: %w", err)
 	}
 
+	if len(args) == 0 {
+		if o.allNamespaces {
+			ns = ""
+		}
+		return o.runFleet(ctx, cs, ns)
+	}
+
+	kind, name, err := parseTarget(args)
+	if err != nil {
+		return err
+	}
 	target := settle.Target{Kind: kind, Namespace: ns, Name: name}
 	res, err := settle.Run(ctx, cs, target, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
 	if err != nil {
@@ -149,9 +172,119 @@ func (o *options) run(ctx context.Context, args []string) error {
 		Reason:    res.Reason,
 		Elapsed:   res.Elapsed,
 		Pods:      res.Final.CurrentPods,
-		Failures:  collapse.Collapse(ns, rep.Findings),
+		Failures:  collapse.Collapse(rep.Findings),
 		Degraded:  rep.Degraded,
 	}))
+}
+
+// validateSelection rejects mixed selection modes up front: a named target
+// is one workload in one namespace, so a selector or --all-namespaces beside
+// it silently meaning something else would be worse than an error.
+func validateSelection(args []string, selector string, allNamespaces bool) error {
+	if len(args) == 0 {
+		return nil
+	}
+	if selector != "" {
+		return fmt.Errorf("TYPE/NAME and --selector are mutually exclusive; drop one")
+	}
+	if allNamespaces {
+		return fmt.Errorf("a named target cannot span namespaces; drop TYPE/NAME or --all-namespaces")
+	}
+	return nil
+}
+
+// runFleet is the fan-out path: watch every workload in scope, diagnose the
+// non-settled ones, collapse findings across the whole fleet, and emit one
+// verdict whose status is the worst outcome observed.
+func (o *options) runFleet(ctx context.Context, cs kubernetes.Interface, ns string) error {
+	scope := settle.Scope{Namespace: ns, Selector: o.selector, MaxTargets: o.maxTargets}
+	start := time.Now()
+	results, err := settle.RunFleet(ctx, cs, scope, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
+	if err != nil {
+		if v, ok := fleetErrorVerdict(err, ns, o.selector); ok {
+			return o.emit(v)
+		}
+		return err
+	}
+
+	findings, degraded := diagnoseFleet(ctx, cs, results)
+	targets := make([]output.FleetTarget, 0, len(results))
+	for _, r := range results {
+		targets = append(targets, output.FleetTarget{
+			Kind:      string(r.Target.Kind),
+			Name:      r.Target.Name,
+			Namespace: r.Target.Namespace,
+			Status:    statusFor(r.Result.Outcome),
+			Reason:    r.Result.Reason,
+			Pods:      r.Result.Final.CurrentPods,
+		})
+	}
+	return o.emit(output.BuildFleet(output.FleetInput{
+		Namespace: ns,
+		Selector:  o.selector,
+		Elapsed:   time.Since(start),
+		Targets:   targets,
+		Failures:  collapse.Collapse(findings),
+		Degraded:  degraded,
+	}))
+}
+
+// diagnoseFleet diagnoses every non-settled target, a few at a time, and
+// merges the reports in fleet order so the output stays deterministic.
+func diagnoseFleet(ctx context.Context, cs kubernetes.Interface, results []settle.TargetResult) ([]signatures.Finding, []string) {
+	var unsettled []settle.TargetResult
+	for _, r := range results {
+		if r.Result.Outcome != settle.OutcomeSettled {
+			unsettled = append(unsettled, r)
+		}
+	}
+	reports := make([]signatures.Report, len(unsettled))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for i, r := range unsettled {
+		wg.Add(1)
+		go func(slot int, tr settle.TargetResult) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			dctx, dcancel := context.WithTimeout(ctx, 15*time.Second)
+			defer dcancel()
+			ref := signatures.TargetRef{Kind: string(tr.Target.Kind), Namespace: tr.Target.Namespace, Name: tr.Target.Name}
+			reports[slot] = signatures.Diagnose(dctx, cs, ref, tr.Result.Final.CurrentPods)
+		}(i, r)
+	}
+	wg.Wait()
+
+	var findings []signatures.Finding
+	var degraded []string
+	seen := map[string]bool{}
+	for _, rep := range reports {
+		findings = append(findings, rep.Findings...)
+		for _, m := range rep.Degraded {
+			if seen[m] {
+				continue
+			}
+			seen[m] = true
+			degraded = append(degraded, m)
+		}
+	}
+	return findings, degraded
+}
+
+// fleetErrorVerdict maps the typed fan-out errors onto structured verdicts:
+// an empty match → no_resources_matched (exit 4), an RBAC denial →
+// permission_denied (exit 3). An over-ceiling selection stays an error (exit
+// 1): the cluster was never checked, so there is no verdict about it.
+func fleetErrorVerdict(err error, ns, selector string) (output.Verdict, bool) {
+	var nm *settle.NoMatchError
+	if errors.As(err, &nm) {
+		return output.NoMatchFleet(ns, selector, nm.Error()), true
+	}
+	var pe *settle.PermissionError
+	if errors.As(err, &pe) {
+		return output.PermissionDeniedFleet(ns, selector, pe.Error()), true
+	}
+	return output.Verdict{}, false
 }
 
 // errorVerdict maps the typed settle errors onto their structured verdicts:

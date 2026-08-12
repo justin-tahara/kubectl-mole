@@ -6,22 +6,23 @@ import (
 	"github.com/justin-tahara/kubectl-mole/internal/signatures"
 )
 
-func podFinding(pod, cause string) signatures.Finding {
+func podFinding(ns, pod, cause string) signatures.Finding {
 	return signatures.Finding{
 		Signature: "CrashLoopBackOff",
 		Cause:     cause,
 		Chain:     []string{"Deployment/api", "ReplicaSet/api-7f9c", "Pod/" + pod},
 		Pod:       pod,
+		Namespace: ns,
 	}
 }
 
 func TestIdenticalCausesCollapse(t *testing.T) {
 	findings := []signatures.Finding{
-		podFinding("api-7f9c-a", "container main is crash-looping (last exit code 7)"),
-		podFinding("api-7f9c-b", "container main is crash-looping (last exit code 7)"),
-		podFinding("api-7f9c-c", "container main is crash-looping (last exit code 7)"),
+		podFinding("prod", "api-7f9c-a", "container main is crash-looping (last exit code 7)"),
+		podFinding("prod", "api-7f9c-b", "container main is crash-looping (last exit code 7)"),
+		podFinding("prod", "api-7f9c-c", "container main is crash-looping (last exit code 7)"),
 	}
-	entries := Collapse("prod", findings)
+	entries := Collapse(findings)
 	if len(entries) != 1 {
 		t.Fatalf("want 1 entry, got %d: %+v", len(entries), entries)
 	}
@@ -40,12 +41,38 @@ func TestIdenticalCausesCollapse(t *testing.T) {
 	}
 }
 
+// TestCrossNamespaceCollapse is the fan-out case the collapse layer exists
+// for: the same cause in many namespaces is one entry, with anchors kept
+// distinct per namespace even when pod names repeat.
+func TestCrossNamespaceCollapse(t *testing.T) {
+	findings := []signatures.Finding{
+		podFinding("tenant-a", "api-7f9c-x", "container main is crash-looping (last exit code 7)"),
+		podFinding("tenant-b", "api-7f9c-x", "container main is crash-looping (last exit code 7)"),
+		podFinding("tenant-c", "api-7f9c-x", "container main is crash-looping (last exit code 7)"),
+		podFinding("tenant-d", "api-7f9c-x", "container main is crash-looping (last exit code 7)"),
+	}
+	entries := Collapse(findings)
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry across namespaces, got %d: %+v", len(entries), entries)
+	}
+	e := entries[0]
+	if e.Affected != 4 || len(e.Pods) != 4 {
+		t.Fatalf("same pod name in 4 namespaces must count 4 anchors, got affected=%d pods=%v", e.Affected, e.Pods)
+	}
+	want := []string{"tenant-a/api-7f9c-x", "tenant-b/api-7f9c-x", "tenant-c/api-7f9c-x"}
+	for i, ref := range want {
+		if e.Examples[i] != ref {
+			t.Fatalf("examples %v, want %v", e.Examples, want)
+		}
+	}
+}
+
 func TestExamplesCapped(t *testing.T) {
 	var findings []signatures.Finding
 	for _, p := range []string{"a", "b", "c", "d", "e"} {
-		findings = append(findings, podFinding("api-"+p, "same cause"))
+		findings = append(findings, podFinding("prod", "api-"+p, "same cause"))
 	}
-	e := Collapse("prod", findings)[0]
+	e := Collapse(findings)[0]
 	if e.Affected != 5 || len(e.Examples) != 3 {
 		t.Fatalf("affected %d examples %v, want 5 with 3 examples", e.Affected, e.Examples)
 	}
@@ -53,10 +80,10 @@ func TestExamplesCapped(t *testing.T) {
 
 func TestDifferentCausesStaySeparate(t *testing.T) {
 	findings := []signatures.Finding{
-		podFinding("api-a", "container main is crash-looping (last exit code 7)"),
-		podFinding("api-b", "container main is crash-looping (last exit code 1)"),
+		podFinding("prod", "api-a", "container main is crash-looping (last exit code 7)"),
+		podFinding("prod", "api-b", "container main is crash-looping (last exit code 1)"),
 	}
-	entries := Collapse("prod", findings)
+	entries := Collapse(findings)
 	if len(entries) != 2 {
 		t.Fatalf("different causes must not merge, got %+v", entries)
 	}
@@ -72,8 +99,9 @@ func TestWorkloadAnchorCountsOnce(t *testing.T) {
 		Signature: "QuotaExceeded",
 		Cause:     `pod creation blocked by quota "no-pods" (requested pods=1)`,
 		Chain:     []string{"Deployment/api"},
+		Namespace: "prod",
 	}
-	entries := Collapse("prod", []signatures.Finding{wf, wf})
+	entries := Collapse([]signatures.Finding{wf, wf})
 	if len(entries) != 1 || entries[0].Affected != 1 {
 		t.Fatalf("same workload anchor must count once, got %+v", entries)
 	}

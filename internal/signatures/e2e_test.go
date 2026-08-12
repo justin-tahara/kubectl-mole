@@ -316,7 +316,7 @@ func TestE2EIdenticalCausesCollapse(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		rep := signatures.Diagnose(ctx, cs, ref, pods)
 		cancel()
-		entries = collapse.Collapse(ns, rep.Findings)
+		entries = collapse.Collapse(rep.Findings)
 		if len(entries) == 1 && entries[0].Signature == "CrashLoopBackOff" && entries[0].Affected == 3 {
 			break
 		}

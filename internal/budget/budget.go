@@ -24,12 +24,15 @@ func Tokens(v output.Verdict) int {
 
 // Apply trims the verdict to approximately fit the token budget, in tier
 // order. The skeleton — status, counts, degraded, truncated — is always
-// emitted, even when it alone exceeds the budget. Failure entries are kept
-// while they fit, dropped from the end. Evidence returns round-robin so
-// every kept failure carries its first item before any carries its second;
-// an item that does not fit is skipped, not a stop signal. Every drop is
-// counted in truncated: silent truncation makes a partial picture look
-// complete.
+// emitted, even when it alone exceeds the budget. Per-namespace verdict
+// entries are dropped from the end before failure entries: a collapsed
+// failure names the shared cause once, while namespaces only enumerate where
+// it struck, and the fleet counts keep carrying the how-many. Failure
+// entries are kept while they fit, dropped from the end. Evidence returns
+// round-robin so every kept failure carries its first item before any
+// carries its second; an item that does not fit is skipped, not a stop
+// signal. Every drop is counted in truncated: silent truncation makes a
+// partial picture look complete.
 //
 // During trimming the verdict is measured with its original hash in place —
 // the hash string's length is constant, so the measurement holds — and
@@ -39,13 +42,17 @@ func Apply(v output.Verdict, tokens int) output.Verdict {
 		return v
 	}
 	full := v.Failures
+	fullNamespaces := v.Namespaces
 
-	// Tier 1: evidence-free failure entries, dropped from the end until the
-	// verdict fits.
+	// Tier 1: evidence-free failure entries; namespace entries dropped from
+	// the end, then failure entries, until the verdict fits.
 	v.Failures = make([]output.Failure, len(full))
 	for i, f := range full {
 		f.Evidence = []output.Evidence{}
 		v.Failures[i] = f
+	}
+	for len(v.Namespaces) > 0 && Tokens(v) > tokens {
+		v.Namespaces = v.Namespaces[:len(v.Namespaces)-1]
 	}
 	for len(v.Failures) > 0 && Tokens(v) > tokens {
 		v.Failures = v.Failures[:len(v.Failures)-1]
@@ -74,6 +81,7 @@ func Apply(v output.Verdict, tokens int) output.Verdict {
 	// counted only for entries that stayed (a dropped entry takes its
 	// evidence with it).
 	v.Truncated.Failures = len(full) - len(v.Failures)
+	v.Truncated.Namespaces = len(fullNamespaces) - len(v.Namespaces)
 	v.Truncated.Evidence = 0
 	for i := range v.Failures {
 		v.Truncated.Evidence += len(full[i].Evidence) - len(v.Failures[i].Evidence)

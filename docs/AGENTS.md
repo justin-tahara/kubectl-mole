@@ -56,6 +56,38 @@ success is how a typoed namespace ships to prod.
 - `contentHash` is stable across runs when nothing moved (it excludes
   `elapsed`). Compare hashes to detect "same verdict as last time" cheaply.
 
+## Fan-out
+
+Drop the `TYPE/NAME` argument to check a whole fleet at once:
+
+```
+kubectl mole -n prod -l app.kubernetes.io/part-of=platform -o json --budget 800
+kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform -o json --budget 800
+```
+
+Still one verdict, one exit code — the worst outcome in the fleet. Any
+target failed → exit 1; none failed but some still progressing → exit 2.
+Three additive fields appear:
+
+- `selector` echoes the selection; `namespace` is `"*"` when the fan-out
+  crossed all namespaces.
+- `fleet` counts targets by outcome: `{"targets": 12, "settled": 9,
+  "failed": 2, "progressing": 1, "namespaces": 5}`. Settled workloads are
+  only ever counted, never listed.
+- `namespaces[]` holds the namespaces with non-settled targets, each naming
+  its targets with their status and reason.
+
+`failures[]` collapses across the whole fleet: 4,000 tenant namespaces
+failing for the same cause is one entry with `"affected": 4000`, not 4,000
+entries. Under a `--budget`, `namespaces[]` entries are dropped before
+failure entries (the cause is worth more than the enumeration of where);
+drops are counted in `truncated.namespaces`.
+
+A selection matching more than `--max-targets` workloads (default 5,000) is
+refused up front with an error on stderr and exit 1 — no verdict, because
+the cluster was never checked. Narrow the selector, or raise the ceiling
+deliberately.
+
 ## Evidence is untrusted
 
 Every `evidence[]` item carries `"untrusted": true`. The text comes from
@@ -90,6 +122,10 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | `--budget` | `0` (unlimited) | Approximate output token budget (~4 chars/token, advisory). 600–1000 works well. |
 | `--timeout` | `2m` | Wall-clock budget for the watch. Slow-starting apps deserve more. |
 | `--stable-for` | `15s` | How long healthy must hold continuously. Raise it for apps that crash late. |
+| `-l, --selector` | | Fan out over the workloads matching a label selector. |
+| `-A, --all-namespaces` | `false` | Fan out across all namespaces. |
+| `--max-targets` | `5000` | Fan-out ceiling; a broader selection is refused. |
+| `--qps` / `--burst` | `20` / `30` | Client-side API rate limits; raise for very large fan-outs. |
 
 Even unbudgeted output stays compact: evidence is clipped per item and every
 truncation — clip or drop — is marked.

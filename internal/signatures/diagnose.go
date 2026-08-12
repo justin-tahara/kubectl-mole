@@ -62,6 +62,9 @@ func Diagnose(ctx context.Context, cs kubernetes.Interface, target TargetRef, po
 			break
 		}
 	}
+	for i := range findings {
+		findings[i].Namespace = target.Namespace
+	}
 	return Report{Findings: dedupIdentical(findings), Degraded: d.degraded}
 }
 

@@ -88,6 +88,17 @@ The failing pod handed to the baselines is resolved mechanically: the first
   is documented as advisory. (The constant was 4 before this bench first
   measured it: verdict JSON tokenizes at ~2.9 chars/token, so 4 made every
   budget overshoot by ~25%.)
+- **max_rss_kb** — the peak resident set (`ru_maxrss`) across the tool's
+  invocations, for every tool.
+- **api_requests / *_ms phases** — mole's self-measurement, taken through
+  `MOLE_METRICS_FILE`: API requests to the cluster (counted by a client-go
+  hook, so LIST and WATCH count like any request) and wall-clock per phase.
+  The `watch` phase is the deliberate wait; preflight, informer sync,
+  diagnose, and emit are overhead, and the optimization target is exactly
+  that overhead. The baselines cannot be instrumented this way, so these
+  columns are mole-only — and since the instrumentation runs inside mole's
+  own process, it can only ever slow mole down, never the baselines. The
+  wall-clock comparison stays honest.
 
 ## Corpus
 

@@ -28,6 +28,16 @@ type tracker struct {
 	seen            map[types.UID]int32
 	restartObserved string
 
+	// wedged accumulates, per current pod, time spent in a state that
+	// timeoutVerdict would already call failed. Ready wipes a pod's entry —
+	// real recovery earns fresh patience — while the ambiguous gaps of a
+	// crash-backoff cycle (briefly Running, not Ready) neither add nor
+	// reset. When an entry reaches opts.WedgedFor, the watch ends failed
+	// early: the deadline verdict was already decided, waiting only delays
+	// it.
+	wedged      map[types.UID]time.Duration
+	lastObserve time.Time
+
 	lastReason string
 	lastSnap   snapshot
 }
@@ -48,6 +58,10 @@ func (t *tracker) observe(now time.Time, s snapshot) (Outcome, bool) {
 	}
 	if s.kstatus.Status == status.FailedStatus {
 		t.lastReason = fmt.Sprintf("failed: %s", s.kstatus.Message)
+		return OutcomeFailed, true
+	}
+	if r, wedged := t.observeWedge(now, s); wedged {
+		t.lastReason = "failed: " + r
 		return OutcomeFailed, true
 	}
 	// Completion-terminal targets bypass the readiness path entirely:
@@ -101,6 +115,44 @@ func (t *tracker) observe(now time.Time, s snapshot) (Outcome, bool) {
 
 func (t *tracker) observation() Observation {
 	return Observation{CurrentPods: t.lastSnap.currentPods, OldPods: t.lastSnap.oldPods}
+}
+
+// observeWedge advances the per-pod wedged clocks and reports whether one
+// crossed the early-failure window. The wedge signal mirrors timeoutVerdict
+// exactly — a terminal waiting reason for every kind, phase Failed only for
+// targets that settle by readiness (Job retries fail pods routinely) — so
+// anything failed here would have been failed at the deadline anyway.
+func (t *tracker) observeWedge(now time.Time, s snapshot) (string, bool) {
+	var dt time.Duration
+	if !t.lastObserve.IsZero() {
+		dt = now.Sub(t.lastObserve)
+	}
+	t.lastObserve = now
+	if t.opts.WedgedFor <= 0 {
+		return "", false
+	}
+	for _, p := range s.currentPods {
+		var reason string
+		if s.completionTerminal {
+			reason = terminalWaitingReason(p)
+		} else {
+			reason = terminalPodReason(p)
+		}
+		if reason == "" {
+			if podReady(p) {
+				delete(t.wedged, p.UID)
+			}
+			continue
+		}
+		if t.wedged == nil {
+			t.wedged = map[types.UID]time.Duration{}
+		}
+		t.wedged[p.UID] += dt
+		if t.wedged[p.UID] >= t.opts.WedgedFor {
+			return fmt.Sprintf("%s; wedged for %s (--wedged-for)", reason, t.opts.WedgedFor), true
+		}
+	}
+	return "", false
 }
 
 // timeoutVerdict classifies a watch that hit its timeout. Failed requires a

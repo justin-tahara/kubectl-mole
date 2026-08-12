@@ -74,6 +74,11 @@ type Options struct {
 	// StableFor is how long the target must hold a healthy state
 	// continuously before it counts as settled.
 	StableFor time.Duration
+	// WedgedFor ends the watch failed once any current pod has spent this
+	// much cumulative time in a state the timeout verdict would already
+	// call failed (terminal waiting reasons; phase Failed for targets that
+	// settle by readiness). Zero waits for the timeout.
+	WedgedFor time.Duration
 	// Interval between evaluations of the informer caches. Defaults to 1s.
 	Interval time.Duration
 	// Progress, when set, receives the elapsed time and current reason on

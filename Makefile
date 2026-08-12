@@ -45,9 +45,10 @@ bench-down:
 	kind delete cluster --name $(BENCH_CLUSTER) --kubeconfig $(BENCH_KUBECONFIG)
 
 # The kubectl-status main package lives at ./cmd, so go install drops a
-# binary named "cmd"; rename it.
+# binary named "cmd"; rename it. GOTOOLCHAIN=auto: this third-party tool may
+# need a newer toolchain than our pinned one (setup-go v7 sets local).
 bin/kubectl-status:
-	GOBIN=$(CURDIR)/bin go install github.com/bergerx/kubectl-status/cmd@$(KSTATUS_VERSION)
+	GOTOOLCHAIN=auto GOBIN=$(CURDIR)/bin go install github.com/bergerx/kubectl-status/cmd@$(KSTATUS_VERSION)
 	mv $(CURDIR)/bin/cmd $(CURDIR)/bin/kubectl-status
 
 # bench-run measures against an existing bench cluster; BENCH_ARGS passes

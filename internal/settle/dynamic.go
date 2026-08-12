@@ -20,6 +20,8 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/cli-utils/pkg/kstatus/status"
+
+	"github.com/justin-tahara/kubectl-mole/internal/perf"
 )
 
 // RunCustom watches a resource mole has no typed support for — usually a
@@ -35,7 +37,9 @@ func RunCustom(parent context.Context, cs kubernetes.Interface, dyn dynamic.Inte
 	target := Target{Kind: Kind(kind), Namespace: namespace, Name: name}
 
 	pctx, pcancel := context.WithTimeout(parent, opts.Timeout)
+	stopPreflight := perf.Phase("preflight")
 	err := preflightCustom(pctx, cs, dyn, gvr, target)
+	stopPreflight()
 	pcancel()
 	if err != nil {
 		return Result{}, err
@@ -56,18 +60,22 @@ func RunCustom(parent context.Context, cs kubernetes.Interface, dyn dynamic.Inte
 	defer tfac.Shutdown()
 	ctx, cancel := context.WithTimeout(parent, opts.Timeout)
 	defer cancel()
+	stopSync := perf.Phase("sync")
 	dfac.Start(ctx.Done())
 	tfac.Start(ctx.Done())
 	for gvrSynced, ok := range dfac.WaitForCacheSync(ctx.Done()) {
 		if !ok {
+			stopSync()
 			return Result{}, fmt.Errorf("timed out syncing the %s informer cache", gvrSynced.Resource)
 		}
 	}
 	for _, ok := range tfac.WaitForCacheSync(ctx.Done()) {
 		if !ok {
+			stopSync()
 			return Result{}, fmt.Errorf("timed out syncing informer caches for %s", target)
 		}
 	}
+	stopSync()
 
 	return watchLoop(parent, ctx, src.snapshot, opts, start)
 }

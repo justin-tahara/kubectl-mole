@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/justin-tahara/kubectl-mole/internal/cli"
+	"github.com/justin-tahara/kubectl-mole/internal/perf"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 )
 
@@ -11,6 +12,9 @@ import (
 var version = "dev"
 
 func main() {
+	perf.Init()
 	streams := genericiooptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
-	os.Exit(cli.Execute(streams, version))
+	code := cli.Execute(streams, version)
+	perf.Flush()
+	os.Exit(code)
 }

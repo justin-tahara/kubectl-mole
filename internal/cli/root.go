@@ -28,6 +28,7 @@ import (
 	"github.com/justin-tahara/kubectl-mole/internal/budget"
 	"github.com/justin-tahara/kubectl-mole/internal/collapse"
 	"github.com/justin-tahara/kubectl-mole/internal/output"
+	"github.com/justin-tahara/kubectl-mole/internal/perf"
 	"github.com/justin-tahara/kubectl-mole/internal/settle"
 	"github.com/justin-tahara/kubectl-mole/internal/signatures"
 )
@@ -405,6 +406,7 @@ func statusFor(o settle.Outcome) string {
 // emit trims the verdict to the token budget, writes it in the chosen
 // format, and records its exit code.
 func (o *options) emit(v output.Verdict) error {
+	defer perf.Phase("emit")()
 	v = budget.Apply(v, o.budget)
 	o.exitCode = v.ExitCode()
 	if o.output == "json" {

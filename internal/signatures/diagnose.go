@@ -13,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
+
+	"github.com/justin-tahara/kubectl-mole/internal/perf"
 )
 
 // TargetRef identifies the workload being diagnosed.
@@ -39,6 +41,7 @@ type Report struct {
 // failing: any denied read is recorded in Report.Degraded and analysis
 // continues on what remains.
 func Diagnose(ctx context.Context, cs kubernetes.Interface, target TargetRef, pods, oldPods []*corev1.Pod) Report {
+	defer perf.Phase("diagnose")()
 	d := &diagnoser{ctx: ctx, cs: cs, target: target}
 	d.loadEvents()
 

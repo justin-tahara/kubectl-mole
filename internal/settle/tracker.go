@@ -37,6 +37,11 @@ type tracker struct {
 	// it.
 	wedged      map[types.UID]time.Duration
 	lastObserve time.Time
+	// wedgedOut marks that the watch ended through the wedged-for window
+	// rather than a controller condition or the deadline. Surfaced as the
+	// verdict's structured earlyExit/wedgedFor fields — never woven into
+	// the reason string, which stays the cause alone.
+	wedgedOut bool
 
 	lastReason string
 	lastSnap   snapshot
@@ -149,7 +154,8 @@ func (t *tracker) observeWedge(now time.Time, s snapshot) (string, bool) {
 		}
 		t.wedged[p.UID] += dt
 		if t.wedged[p.UID] >= t.opts.WedgedFor {
-			return fmt.Sprintf("%s; wedged for %s (--wedged-for)", reason, t.opts.WedgedFor), true
+			t.wedgedOut = true
+			return reason, true
 		}
 	}
 	return "", false

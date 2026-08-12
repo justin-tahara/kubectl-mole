@@ -74,7 +74,9 @@ The failing pod handed to the baselines is resolved mechanically: the first
 - **invocations** — commands run to reach the answer. mole is always 1.
 - **wall_ms** — summed command wall-clock. See fairness rules: mole's
   number includes its deliberate watch; the baselines' numbers do not
-  include the wait for the failure to manifest.
+  include the wait for the failure to manifest. On failure scenarios
+  mole's wall_ms largely reads as min(timeout, wedged-for + detection) —
+  a settle-semantics choice, not a tool-efficiency measurement.
 - **truth_found** — whether the combined output contains the ground-truth
   cause. Each scenario defines regexes (in [scenarios.go](scenarios.go));
   all must match, case-insensitively, so a lucky keyword cannot count.

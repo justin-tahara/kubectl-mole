@@ -250,7 +250,7 @@ func (w *fleetWatch) observe(now, start time.Time) {
 
 func (w *fleetWatch) finish(out Outcome, reason string, elapsed time.Duration) {
 	w.done = true
-	w.res = Result{Outcome: out, Reason: reason, Elapsed: elapsed, Final: w.tr.observation()}
+	w.res = Result{Outcome: out, Reason: reason, WedgedOut: w.tr.wedgedOut, Elapsed: elapsed, Final: w.tr.observation()}
 }
 
 func fleetResults(watches []*fleetWatch) []TargetResult {

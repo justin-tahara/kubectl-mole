@@ -17,6 +17,10 @@ type Input struct {
 	Namespace string
 	Status    string // one of the Status* constants
 	Reason    string
+	// EarlyExit marks a failure the wedged-for window declared before the
+	// timeout; WedgedFor is that window.
+	EarlyExit bool
+	WedgedFor time.Duration
 	Elapsed   time.Duration
 	// Pods are the current-revision pods at the end of the watch.
 	Pods []*corev1.Pod
@@ -45,6 +49,10 @@ type FleetInput struct {
 	Elapsed   time.Duration
 	// Targets in fleet order (namespace, kind, name).
 	Targets []FleetTarget
+	// EarlyExit marks that at least one target failed through the
+	// wedged-for window; WedgedFor is that window.
+	EarlyExit bool
+	WedgedFor time.Duration
 	// Failures are the collapsed findings across the whole fleet.
 	Failures []collapse.Entry
 	Degraded []string
@@ -64,6 +72,10 @@ func Build(in Input) Verdict {
 		Summary:       summarize(in.Pods, in.Failures),
 		Failures:      buildFailures(in.Failures),
 		Degraded:      append([]string{}, in.Degraded...),
+	}
+	if in.EarlyExit {
+		v.EarlyExit = true
+		v.WedgedFor = in.WedgedFor.String()
 	}
 	v.ContentHash = Hash(v)
 	return v
@@ -90,6 +102,10 @@ func BuildFleet(in FleetInput) Verdict {
 		Namespaces:    namespaceVerdicts(in.Targets),
 		Failures:      buildFailures(in.Failures),
 		Degraded:      append([]string{}, in.Degraded...),
+	}
+	if in.EarlyExit {
+		v.EarlyExit = true
+		v.WedgedFor = in.WedgedFor.String()
 	}
 	v.ContentHash = Hash(v)
 	return v

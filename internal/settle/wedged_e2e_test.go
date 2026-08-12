@@ -45,6 +45,9 @@ func TestWedgedForFailsCrashLoopEarly(t *testing.T) {
 	if res.Outcome != settle.OutcomeFailed {
 		t.Fatalf("want failed, got %s (%s)", res.Outcome, res.Reason)
 	}
+	if !res.WedgedOut {
+		t.Fatalf("verdict must be marked as a wedged-for early exit, reason=%q", res.Reason)
+	}
 	// The window fires once ~20s of backoff has accumulated — around a
 	// minute of crash-looping. Anywhere clearly before the deadline proves
 	// the early path; the generous bound absorbs CI load.

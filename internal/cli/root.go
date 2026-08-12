@@ -47,6 +47,7 @@ type options struct {
 	output        string
 	timeout       time.Duration
 	stableFor     time.Duration
+	wedgedFor     time.Duration
 	budget        int
 	selector      string
 	allNamespaces bool
@@ -97,6 +98,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "output format: text or json")
 	cmd.Flags().DurationVar(&o.timeout, "timeout", 2*time.Minute, "max wall-clock time to wait for settle")
 	cmd.Flags().DurationVar(&o.stableFor, "stable-for", 15*time.Second, "how long a healthy state must hold before it counts as settled")
+	cmd.Flags().DurationVar(&o.wedgedFor, "wedged-for", 30*time.Second, "declare failure once a pod has spent this long wedged in a terminal-failure state, instead of waiting out the timeout (0 = only fail at timeout)")
 	cmd.Flags().IntVar(&o.budget, "budget", 0, "approximate token budget for output; 0 = unlimited (advisory, ~3 chars/token)")
 	cmd.Flags().StringVarP(&o.selector, "selector", "l", "", "label selector for fan-out over workloads (instead of TYPE/NAME)")
 	cmd.Flags().BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "fan out across all namespaces")
@@ -190,7 +192,7 @@ func (o *options) run(ctx context.Context, args []string) error {
 	}
 	target := settle.Target{Kind: kind, Namespace: ns, Name: name}
 	draw, clearLine := o.digStatus(target.String())
-	res, err := settle.Run(ctx, cs, target, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, Progress: draw})
+	res, err := settle.Run(ctx, cs, target, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, WedgedFor: o.wedgedFor, Progress: draw})
 	clearLine()
 	if err != nil {
 		if v, ok := errorVerdict(err, string(kind), name, ns); ok {
@@ -237,7 +239,7 @@ func (o *options) runCustom(ctx context.Context, cs kubernetes.Interface, cfg *r
 	}
 
 	draw, clearLine := o.digStatus(gvk.Kind + "/" + name)
-	res, err := settle.RunCustom(ctx, cs, dyn, gvr, gvk.Kind, ns, name, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, Progress: draw})
+	res, err := settle.RunCustom(ctx, cs, dyn, gvr, gvk.Kind, ns, name, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, WedgedFor: o.wedgedFor, Progress: draw})
 	clearLine()
 	if err != nil {
 		if v, ok := errorVerdict(err, gvk.Kind, name, ns); ok {
@@ -289,7 +291,7 @@ func (o *options) runFleet(ctx context.Context, cs kubernetes.Interface, ns stri
 	scope := settle.Scope{Namespace: ns, Selector: o.selector, MaxTargets: o.maxTargets, IncludeJobs: o.includeJobs}
 	start := time.Now()
 	draw, clearLine := o.digStatus("the fleet")
-	results, err := settle.RunFleet(ctx, cs, scope, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, Progress: draw})
+	results, err := settle.RunFleet(ctx, cs, scope, settle.Options{Timeout: o.timeout, StableFor: o.stableFor, WedgedFor: o.wedgedFor, Progress: draw})
 	clearLine()
 	if err != nil {
 		if v, ok := fleetErrorVerdict(err, ns, o.selector); ok {

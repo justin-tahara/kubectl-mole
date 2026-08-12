@@ -8,7 +8,7 @@ BENCH_KUBECONFIG := $(CURDIR)/.kube/bench-config
 KSTATUS_VERSION := v0.7.24
 
 .PHONY: build test vet lint clean kind-up kind-down e2e \
-	bench bench-run bench-up bench-down bench-check
+	bench bench-run bench-up bench-down bench-check demo
 
 build:
 	go build -o bin/$(BINARY) ./cmd/kubectl-mole
@@ -69,3 +69,10 @@ bench-check: build bin/kubectl-status
 	KUBECONFIG=$(BENCH_KUBECONFIG) go run ./bench --context kind-$(BENCH_CLUSTER) \
 		--mole bin/$(BINARY) --kubectl-status bin/kubectl-status \
 		--kubectl-status-version $(KSTATUS_VERSION) --out bench --check $(BENCH_ARGS)
+
+# demo re-records assets/demo.gif against the mole-dev cluster (needs vhs).
+demo: build
+	KUBECONFIG=$(KIND_KUBECONFIG) kubectl --context kind-$(KIND_CLUSTER) apply -f assets/demo-scenario.yaml
+	KUBECONFIG=$(KIND_KUBECONFIG) kubectl --context kind-$(KIND_CLUSTER) -n shop \
+		wait deployment/checkout --for=condition=Available=false --timeout=90s
+	vhs assets/demo.tape

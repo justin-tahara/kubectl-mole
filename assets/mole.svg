@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="kubectl-mole logo: a mole surfacing from its tunnel">
+  <!-- dirt crumbs -->
+  <circle cx="40" cy="168" r="7" fill="#6B4A33"/>
+  <circle cx="216" cy="172" r="6" fill="#6B4A33"/>
+  <circle cx="196" cy="148" r="4.5" fill="#6B4A33"/>
+  <circle cx="58" cy="146" r="4" fill="#6B4A33"/>
+
+  <!-- tunnel mouth (back) -->
+  <ellipse cx="128" cy="196" rx="78" ry="26" fill="#2A1B12"/>
+
+  <!-- body -->
+  <circle cx="128" cy="118" r="62" fill="#8A6248" stroke="#3E2A20" stroke-width="4"/>
+
+  <!-- muzzle -->
+  <ellipse cx="128" cy="140" rx="36" ry="26" fill="#C9A98D"/>
+
+  <!-- closed eyes: moles dig by feel -->
+  <path d="M 88 106 Q 100 118 112 106" fill="none" stroke="#3E2A20" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 144 106 Q 156 118 168 106" fill="none" stroke="#3E2A20" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- nose -->
+  <circle cx="128" cy="130" r="10" fill="#E8849E"/>
+  <circle cx="124.5" cy="126.5" r="3" fill="#F7C6D3"/>
+
+  <!-- whiskers -->
+  <g stroke="#3E2A20" stroke-width="3" stroke-linecap="round" opacity="0.7">
+    <path d="M 98 134 L 64 126"/>
+    <path d="M 98 141 L 62 140"/>
+    <path d="M 98 148 L 66 153"/>
+    <path d="M 158 134 L 192 126"/>
+    <path d="M 158 141 L 194 140"/>
+    <path d="M 158 148 L 190 153"/>
+  </g>
+
+  <!-- tunnel rim (front), over the body: the mole is half-emerged -->
+  <path d="M 50 196 A 78 26 0 0 0 206 196 Z" fill="#2E1E15" stroke="#3E2A20" stroke-width="5" stroke-linejoin="round"/>
+
+  <!-- digging paws on the rim -->
+  <g>
+    <ellipse cx="86" cy="184" rx="17" ry="13" fill="#C9A98D" stroke="#3E2A20" stroke-width="3.5"/>
+    <path d="M 80 174 L 79 183 M 87 173 L 87 183 M 94 174 L 95 183" stroke="#3E2A20" stroke-width="3" stroke-linecap="round"/>
+    <ellipse cx="170" cy="184" rx="17" ry="13" fill="#C9A98D" stroke="#3E2A20" stroke-width="3.5"/>
+    <path d="M 164 174 L 163 183 M 171 173 L 171 183 M 178 174 L 179 183" stroke="#3E2A20" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

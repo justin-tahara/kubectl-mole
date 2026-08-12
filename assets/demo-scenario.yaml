@@ -1,0 +1,33 @@
+# The scenario behind assets/demo.gif: a checkout service crashing on a
+# missing env var. Applied by `make demo` against the mole-dev kind cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      terminationGracePeriodSeconds: 2
+      containers:
+        - name: checkout
+          image: public.ecr.aws/docker/library/busybox:1.36
+          command:
+            - sh
+            - -c
+            - >-
+              echo "starting checkout-service v2.4.1";
+              echo "FATAL: config: required env DATABASE_URL is not set";
+              sleep 1; exit 3

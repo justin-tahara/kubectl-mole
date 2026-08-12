@@ -86,6 +86,26 @@ func run(kubeContext, molePath, kstatusPath, kstatusVer, outDir, only string, fu
 		return checkAgainst(filepath.Join(outDir, "results.csv"), rows)
 	}
 
+	// A partial (--only) run merges into the committed results instead of
+	// clobbering them: re-measuring one scenario costs minutes, not the full
+	// corpus. Quote-worthy numbers still come from a full run on a fresh
+	// cluster.
+	merged := false
+	if only != "" {
+		committed, err := readRows(filepath.Join(outDir, "results.csv"))
+		switch {
+		case err == nil:
+			var names []string
+			for _, sc := range corpus() {
+				names = append(names, sc.name)
+			}
+			rows = mergeRows(committed, rows, names)
+			merged = true
+		case !os.IsNotExist(err):
+			return fmt.Errorf("merge with committed results: %w", err)
+		}
+	}
+
 	sv := "unknown"
 	if v, err := cs.Discovery().ServerVersion(); err == nil {
 		sv = v.GitVersion
@@ -95,6 +115,7 @@ func run(kubeContext, molePath, kstatusPath, kstatusVer, outDir, only string, fu
 		KstatusVersion: kstatusVer,
 		Date:           time.Now().UTC().Format("2006-01-02"),
 		Full:           full,
+		Merged:         merged,
 	}
 	if err := writeCSV(filepath.Join(outDir, "results.csv"), rows); err != nil {
 		return err

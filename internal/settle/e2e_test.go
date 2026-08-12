@@ -127,6 +127,7 @@ func neverReadyProbe() *corev1.Probe {
 
 // Baseline: a healthy deployment settles.
 func TestHappyPathSettles(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("happy", 1))
@@ -142,6 +143,7 @@ func TestHappyPathSettles(t *testing.T) {
 // describes the old rollout. A naive check says healthy; mole must not settle,
 // and must classify the timeout as progressing, not failed.
 func TestRollingUpdateDoesNotSettleOnOldState(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("roll", 1))
@@ -164,6 +166,7 @@ func TestRollingUpdateDoesNotSettleOnOldState(t *testing.T) {
 // Guard 3: pod goes Ready, then crashes seconds later. The stability window
 // must catch it, and the observed restarts make the verdict failed.
 func TestStableForCatchesLateCrash(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("crash", 1, func(d *appsv1.Deployment) {
@@ -182,6 +185,7 @@ func TestStableForCatchesLateCrash(t *testing.T) {
 // Guard 4: genuinely still progressing at timeout is progressing (exit 2
 // territory), never failed — automation must not roll back on it.
 func TestProgressingAtTimeoutIsNotFailed(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("slow", 1, func(d *appsv1.Deployment) {
@@ -199,6 +203,7 @@ func TestProgressingAtTimeoutIsNotFailed(t *testing.T) {
 // so a kstatus-only check settles early; mole must wait for the old pods to
 // actually be gone.
 func TestOldPodTerminationBlocksSettle(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("drain", 2, func(d *appsv1.Deployment) {

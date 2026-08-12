@@ -39,6 +39,7 @@ func podsOf(t *testing.T, cs *kubernetes.Clientset, ns, app string) []*corev1.Po
 // reports each target's own outcome, keeps deterministic order, and folds
 // identical causes from different namespaces into a single entry.
 func TestFleetAcrossNamespaces(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns1 := testNamespace(t, cs)
 	ns2 := testNamespace(t, cs)

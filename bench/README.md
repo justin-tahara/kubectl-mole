@@ -19,6 +19,23 @@ Results land in [results.csv](results.csv) and [RESULTS.md](RESULTS.md),
 both committed. Raw tool outputs land in `bench/raw/` (gitignored) for
 scrutiny of any number.
 
+### Iterating on one scenario
+
+A `--only` run merges into the committed results instead of clobbering
+them: the scenarios you measured are replaced, everything else is carried
+over, and RESULTS.md notes the merge. With a warm cluster, iterating on
+one detector costs minutes:
+
+```
+make bench-up                                       # once
+make bench-run BENCH_ARGS="--only sig-configmissing"   # ~2 min per loop
+make bench-down                                     # when done
+```
+
+Quote-worthy numbers (README, release notes) still come from one full run
+on a fresh cluster: `make bench BENCH_ARGS=--full`. Git history carries
+per-scenario provenance for merged rows.
+
 ## What is pinned
 
 - Kubernetes: the kind node image digest in [kind.yaml](kind.yaml)

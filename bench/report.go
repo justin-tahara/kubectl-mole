@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,6 +69,81 @@ type runMeta struct {
 	KstatusVersion string
 	Date           string
 	Full           bool
+	// Merged marks a partial (--only) run whose unmeasured rows were carried
+	// over from the committed results.
+	Merged bool
+}
+
+// readRows loads a results CSV back into rows, so a partial re-measurement
+// can merge into the committed results instead of clobbering them.
+func readRows(path string) ([]row, error) {
+	fh, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer fh.Close()
+	records, err := csv.NewReader(fh).ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	var out []row
+	for i, rec := range records {
+		if i == 0 {
+			continue
+		}
+		if len(rec) < len(csvHeader) {
+			return nil, fmt.Errorf("%s line %d: %d fields, want %d", path, i+1, len(rec), len(csvHeader))
+		}
+		inv, err1 := strconv.Atoi(rec[2])
+		bs, err2 := strconv.Atoi(rec[3])
+		tok, err3 := strconv.Atoi(rec[4])
+		wall, err4 := strconv.ParseInt(rec[5], 10, 64)
+		if err := errors.Join(err1, err2, err3, err4); err != nil {
+			return nil, fmt.Errorf("%s line %d: %w", path, i+1, err)
+		}
+		out = append(out, row{
+			Scenario: rec[0], Tool: rec[1], Invocations: inv, Bytes: bs, Tokens: tok,
+			WallMS: wall, Truth: rec[6], Density: rec[7], EstTokens: rec[8], EstErrPct: rec[9],
+		})
+	}
+	return out, nil
+}
+
+// mergeRows replaces the committed rows of just-measured scenarios and keeps
+// everything else. Output follows corpus order so a partial run cannot
+// reshuffle the file; committed scenarios that left the corpus go last,
+// visibly, rather than vanishing.
+func mergeRows(committed, fresh []row, corpusNames []string) []row {
+	measured := map[string]bool{}
+	for _, r := range fresh {
+		measured[r.Scenario] = true
+	}
+	byScenario := map[string][]row{}
+	var stale []string
+	inCorpus := map[string]bool{}
+	for _, name := range corpusNames {
+		inCorpus[name] = true
+	}
+	for _, r := range committed {
+		if measured[r.Scenario] {
+			continue
+		}
+		if len(byScenario[r.Scenario]) == 0 && !inCorpus[r.Scenario] {
+			stale = append(stale, r.Scenario)
+		}
+		byScenario[r.Scenario] = append(byScenario[r.Scenario], r)
+	}
+	for _, r := range fresh {
+		byScenario[r.Scenario] = append(byScenario[r.Scenario], r)
+	}
+	var out []row
+	for _, name := range corpusNames {
+		out = append(out, byScenario[name]...)
+	}
+	for _, name := range stale {
+		out = append(out, byScenario[name]...)
+	}
+	return out
 }
 
 func writeMarkdown(path string, rows []row, meta runMeta) error {
@@ -77,7 +153,11 @@ func writeMarkdown(path string, rows []row, meta runMeta) error {
 	fmt.Fprintf(&b, "- Kubernetes: %s (kind, pinned image in [kind.yaml](kind.yaml))\n", meta.ServerVersion)
 	fmt.Fprintf(&b, "- kubectl-status: %s\n", meta.KstatusVersion)
 	fmt.Fprintf(&b, "- Tokens: tiktoken `o200k_base`; bytes always published alongside\n")
-	fmt.Fprintf(&b, "- Date: %s\n\n", meta.Date)
+	if meta.Merged {
+		fmt.Fprintf(&b, "- Date: %s (partial re-measurement merged into committed results; per-scenario provenance in git history)\n\n", meta.Date)
+	} else {
+		fmt.Fprintf(&b, "- Date: %s\n\n", meta.Date)
+	}
 
 	scenarios := orderedScenarios(rows)
 

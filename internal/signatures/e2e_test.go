@@ -157,6 +157,7 @@ func listPods(t *testing.T, cs *kubernetes.Clientset, ns, app string) []*corev1.
 }
 
 func TestE2EImagePull(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("pull", func(d *appsv1.Deployment) {
@@ -177,6 +178,7 @@ func TestE2EImagePull(t *testing.T) {
 }
 
 func TestE2ECrashLoopWithLogEvidence(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("crash", func(d *appsv1.Deployment) {
@@ -199,6 +201,7 @@ func TestE2ECrashLoopWithLogEvidence(t *testing.T) {
 }
 
 func TestE2EOOMKilled(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("oom", func(d *appsv1.Deployment) {
@@ -215,6 +218,7 @@ func TestE2EOOMKilled(t *testing.T) {
 }
 
 func TestE2EUnschedulable(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("big", func(d *appsv1.Deployment) {
@@ -230,6 +234,7 @@ func TestE2EUnschedulable(t *testing.T) {
 }
 
 func TestE2EQuotaExceeded(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	_, err := cs.CoreV1().ResourceQuotas(ns).Create(context.Background(), &corev1.ResourceQuota{
@@ -251,6 +256,7 @@ func TestE2EQuotaExceeded(t *testing.T) {
 }
 
 func TestE2EPVCPending(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	_, err := cs.CoreV1().PersistentVolumeClaims(ns).Create(context.Background(), &corev1.PersistentVolumeClaim{
@@ -290,6 +296,7 @@ func create(t *testing.T, cs *kubernetes.Clientset, ns string, d *appsv1.Deploym
 // replicas crashing for the same reason must fold into one entry with
 // affected: 3, not three findings a consumer would chase separately.
 func TestE2EIdenticalCausesCollapse(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("crashtrio", func(d *appsv1.Deployment) {
@@ -338,6 +345,7 @@ func TestE2EIdenticalCausesCollapse(t *testing.T) {
 }
 
 func TestE2EConfigMissing(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("cfg", func(d *appsv1.Deployment) {
@@ -357,6 +365,7 @@ func TestE2EConfigMissing(t *testing.T) {
 }
 
 func TestE2EStartFailed(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("noexec", func(d *appsv1.Deployment) {
@@ -370,6 +379,7 @@ func TestE2EStartFailed(t *testing.T) {
 }
 
 func TestE2EVolumeMountFailed(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("mnt", func(d *appsv1.Deployment) {
@@ -387,17 +397,26 @@ func TestE2EVolumeMountFailed(t *testing.T) {
 }
 
 func TestE2EEvicted(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("hog", func(d *appsv1.Deployment) {
 		c := &d.Spec.Template.Spec.Containers[0]
 		// Exceed the pod's own ephemeral-storage limit; the kubelet's
 		// eviction manager notices within its ~10s housekeeping interval.
+		// The never-passing readiness probe keeps the pod from going Ready,
+		// so the workload cannot settle before the eviction lands — the
+		// probe-vs-eviction race decided which one the watch saw first.
 		c.Command = []string{"sh", "-c", "dd if=/dev/zero of=/tmp/fill bs=1M count=50; sleep 3600"}
 		c.Resources.Limits = corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("5Mi")}
+		c.ReadinessProbe = &corev1.Probe{
+			ProbeHandler:        corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-c", "test -f /never"}}},
+			InitialDelaySeconds: 1,
+			PeriodSeconds:       2,
+		}
 	}))
 
-	f := watchAndDiagnose(t, cs, ns, "hog", "PodEvicted", 90*time.Second)
+	f := watchAndDiagnose(t, cs, ns, "hog", "PodEvicted", 60*time.Second)
 	if !strings.Contains(strings.ToLower(f.Cause), "ephemeral") {
 		t.Fatalf("cause should name the storage limit breach, got %q", f.Cause)
 	}
@@ -407,6 +426,7 @@ func TestE2EEvicted(t *testing.T) {
 // the old pod carries a finalizer, the new revision comes up fine, and the
 // deployment can never finish. The finding must come from the old-pod path.
 func TestE2EStuckTerminatingOldPod(t *testing.T) {
+	t.Parallel()
 	cs := client(t)
 	ns := testNamespace(t, cs)
 	create(t, cs, ns, newDeployment("wedge"))

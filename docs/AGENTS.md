@@ -36,6 +36,10 @@ The two dangerous misreads are 2 and 4: rolling back on `progressing` kills
 rollouts that were seconds from healthy, and treating "matched nothing" as
 success is how a typoed namespace ships to prod.
 
+A third, subtler one: `settled` means converged, not performing. A
+saturated or throttled workload whose pods are all Ready answers 0 —
+honestly. Performance incidents need metrics, not settle semantics.
+
 ## Reading a failure
 
 - `failures[].signature` is a stable enum: `ImagePullBackOff`,
@@ -43,7 +47,8 @@ success is how a typoed namespace ships to prod.
   `ProbeFailing`, `AdmissionRejected`, `QuotaExceeded`, `NodeNotReady`,
   `ConfigMissing`, `VolumeMountFailed`, `PodSandboxFailed`,
   `ContainerStartFailed`, `ContainerFailed`, `PodEvicted`,
-  `PodStuckTerminating`.
+  `PodStuckTerminating`. Per-signature triggers and remediations:
+  [signatures.md](signatures.md).
 - Init-container failures say so in the cause ("init container migrate is
   crash-looping"); the signature is the mechanism either way.
 - `failures[].chain` is the ownership walk from workload to pod

@@ -25,6 +25,8 @@ into one command with a definite answer and a meaningful exit code.
 - **One invocation, one verdict.** Signature, cause, ownership chain
   (`Deployment/api → ReplicaSet/api-7f9c → Pod/api-7f9c-x2k`), and evidence
   — the crash log tail, the scheduler's predicate, the webhook's message.
+  The full catalogue, with what fires each signature and what to do about
+  it: [docs/signatures.md](docs/signatures.md).
 - **Settle detection that doesn't lie.** A stability window catches the pod
   that goes Ready and crashes 40 seconds later; observedGeneration guards
   against reading the previous rollout's status; old pods must actually be
@@ -158,6 +160,21 @@ narrower selector.
 
 Consuming the output from an agent or CI? Read
 [docs/AGENTS.md](docs/AGENTS.md).
+
+## What mole is not
+
+mole answers exactly one question: did this converge, and if not, why. A
+few nearby questions are out of scope on purpose:
+
+- **Performance is not settle.** A deployment that is saturated, CPU
+  throttled, or slow answers `settled` — honestly, because every pod is
+  Ready and holding. Pair mole with `kubectl top` and your metrics stack
+  for those incidents; a verdict of healthy rules out wedges and
+  cascades, not degradation.
+- **It is not a monitor.** One invocation, one watch, one verdict. Run it
+  after a change or during an incident, not as a control loop.
+- **It is not a log analyzer.** Evidence includes the crash-log tail and
+  the events that prove the cause — never general log search.
 
 ## A note on evidence
 

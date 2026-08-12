@@ -109,9 +109,15 @@ type Verdict struct {
 	// Selector is the label selector of a fan-out run; "*" in Namespace
 	// means the fan-out crossed all namespaces.
 	Selector string  `json:"selector,omitempty"`
-	Reason   string  `json:"reason"`
-	Elapsed  string  `json:"elapsed"`
-	Summary  Summary `json:"summary"`
+	Reason string `json:"reason"`
+	// EarlyExit marks a failure declared by the wedged-for window before
+	// the timeout; WedgedFor is the window that declared it. Additive:
+	// verdicts that settled or ran to the deadline omit both, and Reason
+	// stays the cause alone.
+	EarlyExit bool    `json:"earlyExit,omitempty"`
+	WedgedFor string  `json:"wedgedFor,omitempty"`
+	Elapsed   string  `json:"elapsed"`
+	Summary   Summary `json:"summary"`
 	// Fleet summarizes a fan-out run's targets by outcome.
 	Fleet *FleetCounts `json:"fleet,omitempty"`
 	// Namespaces holds per-namespace verdicts for the namespaces with

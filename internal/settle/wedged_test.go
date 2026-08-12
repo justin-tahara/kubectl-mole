@@ -48,8 +48,16 @@ func TestWedgedForFailsEarly(t *testing.T) {
 	if !done || out != OutcomeFailed {
 		t.Fatalf("want early failure at 30s wedged, got done=%v outcome=%s", done, out)
 	}
-	if !strings.Contains(tr.lastReason, "ImagePullBackOff") || !strings.Contains(tr.lastReason, "wedged for 30s") {
-		t.Fatalf("reason should name the wedge state and window, got %q", tr.lastReason)
+	if !strings.Contains(tr.lastReason, "ImagePullBackOff") {
+		t.Fatalf("reason should name the wedge state, got %q", tr.lastReason)
+	}
+	// The window is a structured concern (earlyExit/wedgedFor), never woven
+	// into the machine-readable reason.
+	if strings.Contains(tr.lastReason, "wedged") {
+		t.Fatalf("reason must stay the cause alone, got %q", tr.lastReason)
+	}
+	if !tr.wedgedOut {
+		t.Fatal("tracker must mark the early exit for the verdict's structured fields")
 	}
 }
 

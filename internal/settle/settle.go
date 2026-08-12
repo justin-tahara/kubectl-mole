@@ -52,7 +52,10 @@ const (
 type Result struct {
 	Outcome Outcome
 	Reason  string
-	Elapsed time.Duration
+	// WedgedOut marks a failure declared by the wedged-for window rather
+	// than a controller condition or the timeout.
+	WedgedOut bool
+	Elapsed   time.Duration
 	// Final is the last observation of the watch, for downstream diagnosis.
 	Final Observation
 }
@@ -142,7 +145,7 @@ func watchLoop(parent, ctx context.Context, snap func() (snapshot, error), opts 
 			return Result{}, err
 		}
 		if out, done := tr.observe(time.Now(), s); done {
-			return Result{Outcome: out, Reason: tr.lastReason, Elapsed: time.Since(start), Final: tr.observation()}, nil
+			return Result{Outcome: out, Reason: tr.lastReason, WedgedOut: tr.wedgedOut, Elapsed: time.Since(start), Final: tr.observation()}, nil
 		}
 		if opts.Progress != nil {
 			opts.Progress(time.Since(start), tr.lastReason)

@@ -31,7 +31,10 @@ into one command with a definite answer and a meaningful exit code.
   gone. And a failure that stays wedged — an image that cannot pull, a
   crash loop, a missing ConfigMap — is declared after `--wedged-for`
   (default 30s) of accumulated evidence instead of at the timeout: the
-  same verdict the deadline would give, sooner.
+  same verdict the deadline would give, sooner. The window is evidence,
+  not a deadline: the clock only advances while a pod is observably
+  wedged, so a crash loop that flickers through restart attempts fails
+  in about a minute, not at exactly 30s.
 - **Exit codes automation can act on.** `2` (still progressing) is not `1`
   (failed) — conflating them is how automation rolls back a deployment that
   was 30 seconds from healthy. `4` (nothing matched) is not `0` — kubectl

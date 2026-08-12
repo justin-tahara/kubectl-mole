@@ -120,7 +120,12 @@ Guarded failure modes, each with a test:
   image that cannot pull, a crash loop) → failed after `--wedged-for` of
   accumulated evidence, not the full timeout; a cause fixed inside the
   window must recover and settle. The window mirrors the timeout verdict's
-  taxonomy exactly — it changes when the verdict arrives, never what it is
+  taxonomy exactly — it changes when the verdict arrives, never what it is.
+  A future refinement is per-signature windows: an image that cannot pull
+  is decided in seconds, while a crash loop might genuinely recover when a
+  dependency comes up — one global window applies identical patience to
+  states with different recovery odds. Deferred until real-world use shows
+  which states people actually wait on
 
 A confidently wrong verdict is worse than no tool at all. This section gets
 real time.

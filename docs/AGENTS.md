@@ -56,6 +56,9 @@ success is how a typoed namespace ships to prod.
   means diagnose those 3, not the workload wholesale.
 - `degraded[]` lists reads RBAC denied and the analysis skipped as a result.
   A verdict with degraded entries is still valid — just less evidenced.
+- `earlyExit: true` with `wedgedFor` marks a failure the wedged window
+  declared before the timeout. `reason` stays the cause alone. Both fields
+  are additive and absent on every other verdict.
 - `truncated` is always present; nonzero counts mean items were dropped and
   the picture is partial.
 - `contentHash` is stable across runs when nothing moved (it excludes

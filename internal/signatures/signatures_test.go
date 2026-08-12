@@ -269,6 +269,17 @@ func TestMatchAdmission(t *testing.T) {
 	}
 }
 
+func TestMatchAdmissionValidatingPolicy(t *testing.T) {
+	msg := `Error creating: pods "api-7f9c-x" is forbidden: ValidatingAdmissionPolicy 'bench-deny' with binding 'bench-deny-binding' denied request: pods are frozen in this namespace`
+	f := matchAdmission(msg)
+	if f == nil || f.Signature != "AdmissionRejected" {
+		t.Fatalf("want AdmissionRejected for a ValidatingAdmissionPolicy denial, got %+v", f)
+	}
+	if !strings.Contains(f.Cause, "bench-deny") || !strings.Contains(f.Cause, "frozen") {
+		t.Fatalf("cause should carry policy name and message, got %q", f.Cause)
+	}
+}
+
 func TestMatchQuota(t *testing.T) {
 	msg := `Error creating: pods "api-x" is forbidden: exceeded quota: compute-resources, requested: pods=1, used: pods=0, limited: pods=0`
 	f := matchQuota(msg)

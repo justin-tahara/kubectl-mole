@@ -1,0 +1,9 @@
+scenario,tool,invocations,bytes,tokens,wall_ms,truth_found,signal_density,mole_est_tokens,mole_est_error_pct
+sig-podunschedulable,mole,1,1341,436,20539,yes,0.495,336,-22.9
+sig-podunschedulable,kubectl-expert,2,1808,466,529,yes,0.308,,
+sig-podunschedulable,kubectl-naive,3,8254,2257,632,yes,0.180,,
+sig-podunschedulable,kubectl-status,1,1187,339,183,no,0.514,,
+sig-quotaexceeded,mole,1,1019,340,20028,yes,0.334,255,-25.0
+sig-quotaexceeded,kubectl-expert,3,3312,936,652,yes,0.709,,
+sig-quotaexceeded,kubectl-naive,3,6159,1784,593,yes,0.439,,
+sig-quotaexceeded,kubectl-status,1,1571,436,103,yes,0.583,,

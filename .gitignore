@@ -3,3 +3,5 @@
 /.kube/
 coverage.out
 .DS_Store
+/bench/raw/
+/bench/.tiktoken-cache/

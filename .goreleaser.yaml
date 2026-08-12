@@ -61,7 +61,8 @@ dockers_v2:
       - ghcr.io/justin-tahara/kubectl-mole
     tags:
       - "v{{ .Version }}"
-      - latest
+      # Empty tags are ignored: prereleases must not move latest.
+      - "{{ if not .Prerelease }}latest{{ end }}"
     dockerfile: Dockerfile
     platforms:
       - linux/amd64

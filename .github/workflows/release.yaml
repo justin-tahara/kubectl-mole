@@ -41,8 +41,16 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fine-grained PAT with contents:write on homebrew-tap; while the
+          # secret is absent goreleaser skips the cask upload.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
       # Provenance for every artifact listed in checksums.txt; verify with
       # `gh attestation verify <file> --repo justin-tahara/kubectl-mole`.
       - uses: actions/attest-build-provenance@v2
         with:
           subject-checksums: dist/checksums.txt
+      # Opens a version-bump PR against krew-index from the .krew.yaml
+      # template. Only works once mole is in the index (first submission is
+      # manual), so a failure here must not fail the release.
+      - uses: rajatjindal/krew-release-bot@v0.0.47
+        continue-on-error: true

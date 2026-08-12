@@ -71,7 +71,8 @@ stability window. Jobs, CronJobs, and bare Pods settle by completing:
   `Failed` condition (`BackoffLimitExceeded`, `DeadlineExceeded`) or when
   suspended. Retry pods in phase `Failed` and restarts are progress, not
   failure — exit 2 at timeout, not 1 — unless a container is wedged in a
-  terminal waiting state (an image that cannot pull).
+  terminal waiting state (an image that cannot pull), which fails after
+  `--wedged-for` like any other kind.
 - A CronJob is judged by its most recent scheduled Job. Nothing scheduled
   yet is progressing; a suspended CronJob is failed.
 - A bare Pod settles by holding Ready, or terminally by phase `Succeeded`.
@@ -149,6 +150,7 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | `--budget` | `0` (unlimited) | Approximate output token budget (~3 chars/token, advisory). 600–1000 works well. |
 | `--timeout` | `2m` | Wall-clock budget for the watch. Slow-starting apps deserve more. |
 | `--stable-for` | `15s` | How long healthy must hold continuously. Raise it for apps that crash late. |
+| `--wedged-for` | `30s` | Fail once a pod has spent this long (cumulative) in a terminal-failure state — an image that cannot pull, a crash loop, a config error. Same verdict the timeout would give, sooner. `0` = only fail at timeout. |
 | `-l, --selector` | | Fan out over the workloads matching a label selector. |
 | `-A, --all-namespaces` | `false` | Fan out across all namespaces. |
 | `--max-targets` | `5000` | Fan-out ceiling; a broader selection is refused. |

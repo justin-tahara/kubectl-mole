@@ -77,6 +77,7 @@ Examples:
 |---|---|---|
 | `--timeout` | `2m` | Max wall-clock to wait for settle |
 | `--stable-for` | `15s` | How long a resource must hold a healthy state before it counts as settled |
+| `--wedged-for` | `30s` | Fail once a pod holds a terminal-failure state this long in total; `0` = only fail at timeout |
 | `--budget` | `0` (unlimited) | Approximate token budget for output |
 | `-o, --output` | `text` | `text` or `json` |
 | `--all-namespaces` | false | Fan out across namespaces |
@@ -115,6 +116,11 @@ Guarded failure modes, each with a test:
 - Pod goes `Ready`, then crashes 40s later → `--stable-for` must catch this
 - Rollout is genuinely still progressing at timeout → exit code 2, NOT a
   failure
+- Pod wedged in a state the timeout verdict would already condemn (an
+  image that cannot pull, a crash loop) → failed after `--wedged-for` of
+  accumulated evidence, not the full timeout; a cause fixed inside the
+  window must recover and settle. The window mirrors the timeout verdict's
+  taxonomy exactly — it changes when the verdict arrives, never what it is
 
 A confidently wrong verdict is worse than no tool at all. This section gets
 real time.

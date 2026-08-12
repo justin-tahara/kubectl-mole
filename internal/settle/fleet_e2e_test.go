@@ -47,7 +47,7 @@ func TestFleetAcrossNamespaces(t *testing.T) {
 	// concurrent test runs cannot see each other's workloads.
 	selector := "mole-e2e-fleet=" + ns1
 	tag := func(d *appsv1.Deployment) {
-		d.ObjectMeta.Labels = map[string]string{"mole-e2e-fleet": ns1}
+		d.Labels = map[string]string{"mole-e2e-fleet": ns1}
 	}
 	crash := func(d *appsv1.Deployment) {
 		d.Spec.Template.Spec.Containers[0].Command = []string{"sh", "-c", "sleep 1; exit 7"}

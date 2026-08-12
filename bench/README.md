@@ -49,7 +49,7 @@ per-scenario provenance for merged rows.
 
 | Tool | Definition |
 |---|---|
-| mole | One invocation: `kubectl-mole <target> -o json` with `--stable-for 5s` and a per-scenario `--timeout`. No budget flag: the measured output is the full verdict. |
+| mole | One invocation: `kubectl-mole <target> -o json` with `--stable-for 5s`, `--wedged-for 10s`, and a per-scenario `--timeout`. No budget flag: the measured output is the full verdict. |
 | expert kubectl | The minimal hand-tuned sequence a good SRE runs for that scenario class, knowing the failure class but not the answer (e.g. `get pods` → `describe pod <failing>` → `logs --previous`). This is the honest comparison. |
 | naive kubectl | The flailing loop: `get all -o yaml`, `describe pods`, `get events`, `logs`. |
 | kubectl-status | `kubectl status deployments -n <ns>` — the closest neighbour tool. |
@@ -67,6 +67,10 @@ The failing pod handed to the baselines is resolved mechanically: the first
   the output — that is what the consumer has to read — and the invocation
   counts.
 - **Output is stdout and stderr combined**, for every tool including mole.
+- **Staging is concurrent, measurement is serial.** Fan-out fixtures are
+  created through a worker pool — nothing is being measured yet — but every
+  tool invocation runs alone against a converged cluster, so wall-clock is
+  never contaminated by harness load or by another tool.
 
 ## Metrics
 

@@ -40,9 +40,10 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       # syft generates the per-archive SBOMs goreleaser attaches.
       - uses: anchore/sbom-action/download-syft@v0
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          args: release --clean
+      # scripts/goreleaser.sh: pinned, checksum-verified, retried — the
+      # action's un-retried binary download cost the v0.2.0 release a rerun.
+      - name: goreleaser release
+        run: ./scripts/goreleaser.sh release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Provenance for every artifact listed in checksums.txt; verify with

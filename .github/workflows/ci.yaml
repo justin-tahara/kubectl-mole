@@ -33,20 +33,10 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v9
       # Validate the release config on every push, not just at tag time.
-      # Pinned, checksum-verified curl with retries instead of
-      # goreleaser-action: the action's binary download has no retry and
-      # has flaked on runner network resets.
+      # scripts/goreleaser.sh: pinned, checksum-verified, retried — shared
+      # with release.yaml so the pin cannot drift.
       - name: goreleaser check
-        env:
-          GORELEASER_VERSION: v2.17.1
-        run: |
-          tmp="$(mktemp -d)"
-          base="https://github.com/goreleaser/goreleaser/releases/download/${GORELEASER_VERSION}"
-          curl -fsSL --retry 5 --retry-all-errors --output-dir "$tmp" -O "$base/goreleaser_Linux_x86_64.tar.gz"
-          curl -fsSL --retry 5 --retry-all-errors --output-dir "$tmp" -O "$base/checksums.txt"
-          (cd "$tmp" && sha256sum --check --ignore-missing checksums.txt)
-          tar -xzf "$tmp/goreleaser_Linux_x86_64.tar.gz" -C "$tmp" goreleaser
-          "$tmp/goreleaser" check
+        run: ./scripts/goreleaser.sh check
   e2e:
     runs-on: ubuntu-latest
     env:

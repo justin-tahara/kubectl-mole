@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/mole.svg" width="150" alt="kubectl-mole: a mole surfacing from its tunnel"/>
+  <img src="assets/logo.png" width="440" alt="kubectl-mole: a mole in a hard hat and headlamp, surfacing over the kubectl-mole banner"/>
 </p>
-
-# kubectl-mole
 
 > digs down to what actually broke
 

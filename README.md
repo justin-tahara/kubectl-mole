@@ -11,7 +11,7 @@ agent's context window.
 
 **Status: alpha (v0.1.0).** Everything below is implemented, tested
 against kind, and released — see [DESIGN.md](DESIGN.md) for the milestone
-order. The krew-index submission is in flight.
+order.
 
 ![demo: kubectl mole diagnosing a crash-looping deployment](assets/demo.gif)
 
@@ -88,11 +88,11 @@ Homebrew (macOS and Linux):
 brew install justin-tahara/tap/kubectl-mole
 ```
 
-Krew, once the [krew-index](https://github.com/kubernetes-sigs/krew-index)
-submission is merged:
+Krew, straight from this repo's manifest:
 
 ```
-kubectl krew install mole
+kubectl krew install --manifest-url \
+  https://raw.githubusercontent.com/justin-tahara/kubectl-mole/main/deploy/krew/mole.yaml
 ```
 
 Binaries for every platform are on the

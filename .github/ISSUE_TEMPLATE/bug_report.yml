@@ -1,0 +1,40 @@
+name: Bug report
+description: mole misbehaved — wrong verdict, bad exit code, crash, hang
+labels: [bug]
+body:
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      placeholder: kubectl mole deployment/api -n prod -o json
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Verdict output and exit code (`echo $?`). Prefer `-o json`.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "`kubectl mole --version`, Kubernetes server version, platform"
+      placeholder: mole v0.1.0, k8s 1.31, macOS arm64
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >-
+        Manifests or steps that stage the failure. The e2e suite stages
+        everything in kind — a failure that reproduces there gets fixed fast.
+      render: yaml

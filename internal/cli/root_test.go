@@ -2,7 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"github.com/justin-tahara/kubectl-mole/internal/output"
 	"github.com/justin-tahara/kubectl-mole/internal/settle"
@@ -82,5 +86,26 @@ func TestFleetErrorVerdictMapping(t *testing.T) {
 	}
 	if _, ok = fleetErrorVerdict(&settle.OverCeilingError{Matched: 9000, Ceiling: 5000}, "", ""); ok {
 		t.Fatal("over-ceiling must stay a plain error: the cluster was never checked")
+	}
+}
+
+// `kubectl mole version` must print exactly what --version prints, and the
+// bare word must never be parsed as a TYPE/NAME target.
+func TestVersionSubcommand(t *testing.T) {
+	for _, args := range [][]string{{"version"}, {"--version"}} {
+		var out strings.Builder
+		o := &options{
+			configFlags: genericclioptions.NewConfigFlags(true),
+			streams:     genericiooptions.IOStreams{Out: &out, ErrOut: &out},
+		}
+		cmd := newMoleCommand(o, "v9.9.9")
+		cmd.SetArgs(args)
+		cmd.SetOut(&out)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if !strings.Contains(out.String(), "kubectl-mole version v9.9.9") {
+			t.Fatalf("%v printed %q", args, out.String())
+		}
 	}
 }

@@ -95,6 +95,22 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 		},
 	}
 
+	// `kubectl mole version` — the kubectl habit. Same line --version
+	// prints; no workload TYPE is plausibly named "version", and cobra only
+	// routes the bare word here.
+	cmd.AddCommand(&cobra.Command{
+		Use:   "version",
+		Short: "Print the kubectl-mole version",
+		Args:  cobra.NoArgs,
+		Run: func(c *cobra.Command, _ []string) {
+			fmt.Fprintf(o.streams.Out, "kubectl-mole version %s\n", version)
+		},
+	})
+	// Subcommands make cobra offer its completion machinery; kubectl owns
+	// plugin completion, so keep the surface at exactly one verb plus
+	// version.
+	cmd.CompletionOptions.DisableDefaultCmd = true
+
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "output format: text or json")
 	cmd.Flags().DurationVar(&o.timeout, "timeout", 2*time.Minute, "max wall-clock time to wait for settle")
 	cmd.Flags().DurationVar(&o.stableFor, "stable-for", 15*time.Second, "how long a healthy state must hold before it counts as settled")

@@ -2,8 +2,20 @@
 # part of the benchmark methodology. Two workers, because the causal-collapse
 # scenario pauses one node and the workloads need somewhere to have been
 # scheduled.
+#
+# The controller-manager gets real rate limits: at the 5,000-namespace
+# fan-out point, kubeadm's default 20 QPS (shared across all controllers)
+# takes the better part of an hour to converge the fleet — no control plane
+# actually serving thousands of tenants runs defaults.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        kube-api-qps: "200"
+        kube-api-burst: "400"
 nodes:
   - role: control-plane
     image: kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a

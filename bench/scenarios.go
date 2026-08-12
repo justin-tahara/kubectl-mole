@@ -103,8 +103,10 @@ func sigImagePull() scenario {
 
 func sigCrashLoop() scenario {
 	return scenario{
-		name:  "sig-crashloopbackoff",
-		truth: []string{`exit\s*code:?\s*7`, `crashloop|crash-looping`},
+		name: "sig-crashloopbackoff",
+		// A crash-looping pod flaps between CrashLoopBackOff and Error, so
+		// the crash-loop fact has several textual forms; any of them counts.
+		truth: []string{`exit\s*code:?\s*7`, `crashloop|crash-looping|back-off restarting`},
 		setup: func(f *fixture) error {
 			ns, err := f.namespace("$NS", nil)
 			if err != nil {
@@ -457,9 +459,11 @@ func fanout(name string, n int, full bool) scenario {
 		timeout = 150 * time.Second
 	}
 	return scenario{
-		name:  name,
-		full:  full,
-		truth: []string{`crashloop|crash-looping`},
+		name: name,
+		full: full,
+		// Any textual form of the crash-loop fact counts — the pod flaps
+		// between CrashLoopBackOff and Error and yaml spells it exitCode.
+		truth: []string{`crashloop|crash-looping|back-off restarting|exit\s*code:?\s*7`},
 		// The whole fleet shares the workload name "app" — realistic for
 		// stamped-out tenants, but useless for telling failing from healthy —
 		// so density falls back to pod-level terms.
@@ -471,8 +475,10 @@ func fanout(name string, n int, full bool) scenario {
 			}
 			// Crashers first: the controller works its queue in order, and
 			// the failure must exist long before the quiet tail is done.
+			// Their namespaces are density-pertinent — they name failing
+			// resources where the shared workload name cannot.
 			for i := 0; i < 3; i++ {
-				key := ""
+				key := fmt.Sprintf("$NSFAIL%d", i+1)
 				if i == 0 {
 					key = "$NSFAIL"
 				}

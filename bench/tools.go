@@ -196,7 +196,7 @@ func pertinentRes(f *fixture, sc scenario) ([]*regexp.Regexp, error) {
 			patterns = append(patterns, regexp.QuoteMeta(term))
 		}
 	}
-	for _, key := range []string{"$POD", "$NODE"} {
+	for _, key := range []string{"$POD", "$NODE", "$NSFAIL", "$NSFAIL2", "$NSFAIL3"} {
 		if v, ok := f.vars[key]; ok {
 			patterns = append(patterns, regexp.QuoteMeta(v))
 		}

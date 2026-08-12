@@ -45,6 +45,9 @@ type snapshot struct {
 	// terminalFailure, when non-empty, ends the watch failed with this
 	// reason regardless of anything else (a suspended Job will never run).
 	terminalFailure string
+	// note qualifies a settled verdict honestly (e.g. a custom resource
+	// with no status settled by existing, not by reporting readiness).
+	note string
 }
 
 // source reads the informer caches needed for one target kind.

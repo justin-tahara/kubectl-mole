@@ -110,15 +110,22 @@ func Run(parent context.Context, cs kubernetes.Interface, target Target, opts Op
 		}
 	}
 
+	return watchLoop(parent, ctx, src.snapshot, opts, start)
+}
+
+// watchLoop evaluates snapshots on a fixed interval until the tracker is
+// done or the context times out. Shared by the typed and dynamic paths so
+// their settle semantics cannot drift.
+func watchLoop(parent, ctx context.Context, snap func() (snapshot, error), opts Options, start time.Time) (Result, error) {
 	tr := newTracker(opts)
 	ticker := time.NewTicker(opts.Interval)
 	defer ticker.Stop()
 	for {
-		snap, err := src.snapshot()
+		s, err := snap()
 		if err != nil {
 			return Result{}, err
 		}
-		if out, done := tr.observe(time.Now(), snap); done {
+		if out, done := tr.observe(time.Now(), s); done {
 			return Result{Outcome: out, Reason: tr.lastReason, Elapsed: time.Since(start), Final: tr.observation()}, nil
 		}
 		select {

@@ -91,6 +91,9 @@ func (t *tracker) observe(now time.Time, s snapshot) (Outcome, bool) {
 	}
 	if now.Sub(t.healthySince) >= t.opts.StableFor {
 		t.lastReason = fmt.Sprintf("healthy for %s", t.opts.StableFor)
+		if s.note != "" {
+			t.lastReason += " (" + s.note + ")"
+		}
 		return OutcomeSettled, true
 	}
 	return "", false

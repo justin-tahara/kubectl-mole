@@ -15,9 +15,13 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/justin-tahara/kubectl-mole/internal/budget"
 	"github.com/justin-tahara/kubectl-mole/internal/collapse"
@@ -100,23 +104,45 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	return cmd
 }
 
-func parseTarget(args []string) (settle.Kind, string, error) {
-	var kindArg, name string
+// splitTypeName extracts the TYPE and NAME from the positional arguments.
+func splitTypeName(args []string) (string, string, error) {
 	switch len(args) {
 	case 1:
 		parts := strings.SplitN(args[0], "/", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return "", "", fmt.Errorf("expected TYPE/NAME (e.g. deployment/api), got %q", args[0])
 		}
-		kindArg, name = parts[0], parts[1]
-	case 2:
-		kindArg, name = args[0], args[1]
+		return parts[0], parts[1], nil
+	default:
+		return args[0], args[1], nil
 	}
-	kind, ok := kindAliases[strings.ToLower(kindArg)]
-	if !ok {
-		return "", "", fmt.Errorf("unsupported resource type %q (supported: deployment, statefulset, daemonset, job, cronjob, pod)", kindArg)
+}
+
+// resolveType maps a TYPE the alias table does not know — usually a custom
+// resource — through API discovery, kubectl-style: plural, singular, or
+// shortname, with an optional .group suffix (rollouts.argoproj.io).
+func resolveType(mapper meta.RESTMapper, arg string) (schema.GroupVersionResource, schema.GroupVersionKind, error) {
+	res := strings.ToLower(arg)
+	group := ""
+	if i := strings.Index(res, "."); i >= 0 {
+		res, group = res[:i], res[i+1:]
 	}
-	return kind, name, nil
+	gvr, err := mapper.ResourceFor(schema.GroupVersionResource{Group: group, Resource: res})
+	if err != nil {
+		return schema.GroupVersionResource{}, schema.GroupVersionKind{}, fmt.Errorf("unknown resource type %q: %w", arg, err)
+	}
+	gvk, err := mapper.KindFor(gvr)
+	if err != nil {
+		return schema.GroupVersionResource{}, schema.GroupVersionKind{}, fmt.Errorf("resolve kind for %q: %w", arg, err)
+	}
+	mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return schema.GroupVersionResource{}, schema.GroupVersionKind{}, err
+	}
+	if mapping.Scope.Name() != meta.RESTScopeNameNamespace {
+		return schema.GroupVersionResource{}, schema.GroupVersionKind{}, fmt.Errorf("%s is cluster-scoped; mole watches namespaced resources", gvr.Resource)
+	}
+	return gvr, gvk, nil
 }
 
 func (o *options) run(ctx context.Context, args []string) error {
@@ -149,9 +175,13 @@ func (o *options) run(ctx context.Context, args []string) error {
 		return o.runFleet(ctx, cs, ns)
 	}
 
-	kind, name, err := parseTarget(args)
+	typeArg, name, err := splitTypeName(args)
 	if err != nil {
 		return err
+	}
+	kind, ok := kindAliases[strings.ToLower(typeArg)]
+	if !ok {
+		return o.runCustom(ctx, cs, cfg, typeArg, name, ns)
 	}
 	target := settle.Target{Kind: kind, Namespace: ns, Name: name}
 	res, err := settle.Run(ctx, cs, target, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
@@ -171,6 +201,51 @@ func (o *options) run(ctx context.Context, args []string) error {
 
 	return o.emit(output.Build(output.Input{
 		Kind:      string(kind),
+		Name:      name,
+		Namespace: ns,
+		Status:    statusFor(res.Outcome),
+		Reason:    res.Reason,
+		Elapsed:   res.Elapsed,
+		Pods:      res.Final.CurrentPods,
+		Failures:  collapse.Collapse(rep.Findings),
+		Degraded:  rep.Degraded,
+	}))
+}
+
+// runCustom watches a resource outside the alias table — usually a custom
+// resource — through the dynamic engine, after resolving the type via API
+// discovery.
+func (o *options) runCustom(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, typeArg, name, ns string) error {
+	mapper, err := o.configFlags.ToRESTMapper()
+	if err != nil {
+		return fmt.Errorf("build REST mapper: %w", err)
+	}
+	gvr, gvk, err := resolveType(mapper, typeArg)
+	if err != nil {
+		return err
+	}
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("build dynamic client: %w", err)
+	}
+
+	res, err := settle.RunCustom(ctx, cs, dyn, gvr, gvk.Kind, ns, name, settle.Options{Timeout: o.timeout, StableFor: o.stableFor})
+	if err != nil {
+		if v, ok := errorVerdict(err, gvk.Kind, name, ns); ok {
+			return o.emit(v)
+		}
+		return err
+	}
+
+	var rep signatures.Report
+	if res.Outcome != settle.OutcomeSettled {
+		dctx, dcancel := context.WithTimeout(ctx, 15*time.Second)
+		defer dcancel()
+		rep = signatures.Diagnose(dctx, cs, signatures.TargetRef{Kind: gvk.Kind, Namespace: ns, Name: name}, res.Final.CurrentPods, res.Final.OldPods)
+	}
+
+	return o.emit(output.Build(output.Input{
+		Kind:      gvk.Kind,
 		Name:      name,
 		Namespace: ns,
 		Status:    statusFor(res.Outcome),

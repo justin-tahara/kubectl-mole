@@ -44,6 +44,12 @@ into one command with a definite answer and a meaningful exit code.
   Complete condition — retries are progress, not failure — and fails on
   `backoffLimit`, `activeDeadlineSeconds`, or suspension. CronJobs are
   judged by their most recent scheduled Job; bare Pods work too.
+- **Custom resources work.** Any namespaced TYPE/NAME
+  (`kubectl mole rollout/api`, `kubectl mole cluster.postgresql.example/db`)
+  resolves through API discovery and settles by kstatus conventions
+  (`Ready` condition, `observedGeneration`). Pods the resource owns are
+  still diagnosed underneath it, and a resource with no status to read
+  says so in the verdict instead of pretending.
 
 ## The numbers
 

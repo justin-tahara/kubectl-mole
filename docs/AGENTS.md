@@ -75,6 +75,13 @@ stability window. Jobs, CronJobs, and bare Pods settle by completing:
 - A CronJob is judged by its most recent scheduled Job. Nothing scheduled
   yet is progressing; a suspended CronJob is failed.
 - A bare Pod settles by holding Ready, or terminally by phase `Succeeded`.
+- Any other namespaced TYPE/NAME — a custom resource behind an operator —
+  resolves through API discovery (plural, singular, or shortname, with an
+  optional `.group` suffix) and settles by kstatus conventions: the
+  `Ready` condition and `observedGeneration`. Pods it owns, directly or
+  through a ReplicaSet, or matched by its `spec.selector`, are diagnosed
+  underneath it. A resource with no status settles by existing, and the
+  verdict says so.
 
 ## Fan-out
 

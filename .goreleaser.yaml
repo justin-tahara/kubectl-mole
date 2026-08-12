@@ -75,22 +75,10 @@ dockers_v2:
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.licenses: "Apache-2.0"
 
-# Publishes the cask to the Homebrew tap. Upload is skipped when the
-# HOMEBREW_TAP_TOKEN secret is absent (GITHUB_TOKEN cannot push to another
-# repo), so a missing token never fails a release.
-homebrew_casks:
-  - name: kubectl-mole
-    repository:
-      owner: justin-tahara
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    skip_upload: "{{ if .Env.HOMEBREW_TAP_TOKEN }}false{{ else }}true{{ end }}"
-    homepage: https://github.com/justin-tahara/kubectl-mole
-    description: Watch Kubernetes workloads until they settle, then explain what broke
-    license: Apache-2.0
-    caveats: |
-      kubectl-mole needs read access to workloads, pods, and events.
-      A minimal ClusterRole ships with the repo: deploy/rbac.yaml
+# The Homebrew tap is updated by scripts/update-tap-formula.sh in the
+# release workflow, not by goreleaser: homebrew_casks binaries get
+# quarantined and Gatekeeper-killed without notarization, and the formula
+# alternative (brews) is deprecated and fails `goreleaser check`.
 
 # Keyless cosign over the pushed multi-arch image (default artifacts filter
 # is the dockers_v2 output).

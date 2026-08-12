@@ -9,10 +9,9 @@ structured verdict explaining what happened and — if something failed — why.
 Deterministic, read-only, no LLM. Works in your terminal, your CI, and your
 agent's context window.
 
-**Status: pre-alpha (M9).** Everything below is implemented and tested
-against kind; the release pipeline is in place, and the first tagged
-release plus krew packaging (M10) are next — see [DESIGN.md](DESIGN.md)
-for the milestone order.
+**Status: alpha (v0.1.0).** Everything below is implemented, tested
+against kind, and released — see [DESIGN.md](DESIGN.md) for the milestone
+order. The krew-index submission is in flight.
 
 ![demo: kubectl mole diagnosing a crash-looping deployment](assets/demo.gif)
 
@@ -68,17 +67,38 @@ baselines are 20–40× faster to answer *after* the failure is already steady;
 and a focused `describe` can beat mole's signal density on workload-level
 failures.
 
-## Install (from source)
+## Install
+
+Homebrew (macOS and Linux):
+
+```
+brew install justin-tahara/tap/kubectl-mole
+```
+
+Krew, once the [krew-index](https://github.com/kubernetes-sigs/krew-index)
+submission is merged:
+
+```
+kubectl krew install mole
+```
+
+Binaries for every platform are on the
+[releases page](https://github.com/justin-tahara/kubectl-mole/releases),
+with cosign-signed checksums, SPDX SBOMs, and GitHub build provenance.
+There is also a container image:
+
+```
+docker run --rm ghcr.io/justin-tahara/kubectl-mole:v0.1.0 --help
+```
+
+Or from source:
 
 ```
 go install github.com/justin-tahara/kubectl-mole/cmd/kubectl-mole@latest
 ```
 
-Put the binary on your `PATH` and `kubectl mole` works as a plugin. On each
-tag the release pipeline publishes binaries for all platforms, cosign-signed
-checksums, and a container image
-(`ghcr.io/justin-tahara/kubectl-mole`); krew packaging comes with M10. RBAC
-for the read access mole needs ships in
+Any binary on your `PATH` named `kubectl-mole` works as a `kubectl mole`
+plugin. RBAC for the read access mole needs ships in
 [deploy/rbac.yaml](deploy/rbac.yaml).
 
 ## Use

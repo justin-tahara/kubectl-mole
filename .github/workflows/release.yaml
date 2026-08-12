@@ -17,6 +17,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # Fine-grained PAT with contents write on homebrew-tap; the tap
+      # update step is skipped while the secret is absent.
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,14 +45,15 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Fine-grained PAT with contents:write on homebrew-tap; while the
-          # secret is absent goreleaser skips the cask upload.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
       # Provenance for every artifact listed in checksums.txt; verify with
       # `gh attestation verify <file> --repo justin-tahara/kubectl-mole`.
       - uses: actions/attest-build-provenance@v2
         with:
           subject-checksums: dist/checksums.txt
+      # Regenerates the Homebrew tap formula from this release's checksums.
+      - name: Update Homebrew tap formula
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: ./scripts/update-tap-formula.sh "$GITHUB_REF_NAME"
       # Opens a version-bump PR against krew-index from the .krew.yaml
       # template. Only works once mole is in the index (first submission is
       # manual), so a failure here must not fail the release.

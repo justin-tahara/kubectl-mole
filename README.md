@@ -49,19 +49,21 @@ and signal density: [bench/RESULTS.md](bench/RESULTS.md).
 
 | Scenario | mole | expert kubectl | naive kubectl | kubectl-status |
 |---|---|---|---|---|
-| CrashLoopBackOff | **343 ✓** (1 cmd) | 980 ✓ (3 cmds) | 3,703 ✓ (4 cmds) | 380 ✗ |
-| Node dies under 2 workloads | **552 ✓** | 1,943 ✓ | 10,616 ✓ | 923 ✗ |
-| Fan-out, 50 namespaces | **629 ✓** | 2,759 ✓ | 83,092 ✓ | 9,264 ✓ |
-| Fan-out, 5,000 namespaces | **626 ✓** | 141,005 ✓ | 4,543,446 ✓ | 131,470 ✗ |
+| CrashLoopBackOff | **351 ✓** (1 cmd) | 1,035 ✓ (3 cmds) | 3,795 ✓ (4 cmds) | 384 ✗ |
+| Node dies under 2 workloads | **557 ✓** | 1,984 ✓ | 10,004 ✓ | 922 ✗ |
+| Fan-out, 50 namespaces | **630 ✓** | 2,810 ✓ | 82,399 ✓ | 9,275 ✓ |
+| Fan-out, 5,000 namespaces | **629 ✓** | 141,132 ✓ | 4,522,745 ✓ | 131,487 ✗ |
 
 The honest comparison is the expert column — the minimal hand-tuned sequence
 a good SRE runs. mole reaches the same answer in one invocation at roughly a
-third of the tokens, and its output stays flat as the fleet grows: 629
-tokens at 50 namespaces, 626 at 5,000, because identical causes collapse
-into one entry and healthy workloads are counted, never enumerated.
+third of the tokens, and its output stays flat as the fleet grows: 630
+tokens at 50 namespaces, 629 at 5,000, because identical causes collapse
+into one entry and healthy workloads are counted, never enumerated. Across
+all 15 failure scenarios in the corpus, mole's output contains the ground
+truth 15 times.
 
 Where mole loses, published per the methodology: on a **healthy** workload,
-`kubectl get pods` + `get deploy` (98 tokens) beats mole's verdict (178);
+`kubectl get pods` + `get deploy` (97 tokens) beats mole's verdict (178);
 mole's wall-clock includes its deliberate watch and stability window, so the
 baselines are 20–40× faster to answer *after* the failure is already steady;
 and a focused `describe` can beat mole's signal density on workload-level

@@ -399,3 +399,45 @@ into M2–M3, not polish. Agent-integration docs land as soon as M3 does.
 
 A shipped, narrow v0 beats an ambitious half-finished one. M0–M3 is a
 genuinely useful tool on its own.
+
+## v0.2 milestone order — coverage before production
+
+v0.1 ships the shape of the tool; v0.2 makes it safe to point at a real
+cluster. Correctness milestones come first, polish after, and a bake
+period gates the production claim. The v0 non-negotiables still hold:
+one verb, read-only, no LLM, informers only, deterministic output.
+
+- **M11** — the everyday failure modes, as new signatures on the kinds
+  mole already watches: `CreateContainerConfigError` (missing ConfigMap or
+  Secret), volume attach and mount failures (`FailedAttachVolume`,
+  `FailedMount`, multi-attach), `FailedCreatePodSandBox` (CNI, runtime),
+  `StartError` and executable-not-found, init-container failures as their
+  own class (not misattributed to the main container), evictions (node
+  pressure, ephemeral-storage limits), and rollouts wedged on pods stuck
+  `Terminating` behind finalizers. Each lands with the same contract as
+  the original eight: detector file, priority slot, evidence rules, e2e
+  scenario, and a bench scenario when it can be staged deterministically.
+- **M12** — Jobs, CronJobs, and bare Pods as first-class targets. Jobs
+  change what "settled" means: success is completion, not readiness —
+  `backoffLimit` exhausted, `activeDeadlineSeconds` exceeded, and
+  suspended Jobs are verdicts of their own. A CronJob verdict derives from
+  its most recent scheduled Job, plus a never-scheduled check. Fan-out
+  scope stays Deployment/StatefulSet/DaemonSet by default; Jobs join it
+  behind a flag so batch churn does not drown fleet verdicts.
+- **M13** — arbitrary custom resources through kstatus conventions
+  (`Ready`, `observedGeneration`): `kubectl mole rollout/api` or any
+  TYPE/NAME resolves via discovery, watches through a dynamic informer,
+  and degrades honestly when a CR reports no recognizable status. The
+  ownership walk continues through the CR's owner-referenced pods, so
+  pod-level signatures still fire underneath an operator.
+- **M14** — text output polish with lipgloss: adaptive styles on a TTY
+  (severity color, chain and evidence layout, a live dig-status line while
+  the watch runs), and byte-identical plain output when piped, when
+  `NO_COLOR` is set, or with `--no-color`. JSON output does not change at
+  all; goldens cover both text modes. Determinism is the constraint the
+  styling must prove, not a casualty of it.
+- **M15** — production bake: a kind version matrix in CI (oldest to
+  newest supported minor), a recorded-fixture corpus of real-world
+  failures replayed through the detectors, a dogfood checklist run
+  against live clusters, and RBAC verification against the shipped
+  ClusterRole. Exit is a v0.2 release and the production claim.

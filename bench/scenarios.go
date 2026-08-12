@@ -51,6 +51,7 @@ func corpus() []scenario {
 	return []scenario{
 		sigImagePull(), sigCrashLoop(), sigOOMKilled(), sigUnschedulable(),
 		sigProbeFailing(), sigPVCPending(), sigQuota(), sigAdmission(),
+		sigConfigMissing(), sigStartFailed(), sigVolumeMountFailed(),
 		collapseNodeNotReady(), controlHealthy(),
 		fanout("fanout-50", 50, false),
 		fanout("fanout-500", 500, true),
@@ -377,6 +378,88 @@ func sigAdmission() scenario {
 // collapseNodeNotReady is the causal-collapse case from the design: a node
 // goes dark under two workloads; the correct answer names the node once, not
 // four pod symptoms.
+func sigConfigMissing() scenario {
+	return scenario{
+		name:  "sig-configmissing",
+		truth: []string{`missing-config`, `createcontainerconfigerror|configmissing|configmap "?missing-config"? not found`},
+		setup: func(f *fixture) error {
+			ns, err := f.namespace("$NS", nil)
+			if err != nil {
+				return err
+			}
+			return f.deployment(ns, "cfg", func(d *appsv1.Deployment) {
+				d.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{{
+					Name: "DB_HOST",
+					ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "missing-config"},
+						Key:                  "host",
+					}},
+				}}
+			})
+		},
+		podNS: "$NS", podApp: "cfg",
+		moleArgs: []string{"deployment/cfg", "-n", "$NS"}, moleTimeout: 30 * time.Second,
+		naive: naiveSeq("$NS", false),
+		expert: [][]string{
+			{"get", "pods", "-n", "$NS"},
+			{"describe", "pod", "$POD", "-n", "$NS"},
+		},
+		kstatus: statusSeq("$NS"),
+	}
+}
+
+func sigStartFailed() scenario {
+	return scenario{
+		name:  "sig-startfailed",
+		truth: []string{`no-such-binary`, `starterror|containerstartfailed|executable file not found|no such file`},
+		setup: func(f *fixture) error {
+			ns, err := f.namespace("$NS", nil)
+			if err != nil {
+				return err
+			}
+			return f.deployment(ns, "noexec", func(d *appsv1.Deployment) {
+				d.Spec.Template.Spec.Containers[0].Command = []string{"/no-such-binary"}
+			})
+		},
+		podNS: "$NS", podApp: "noexec",
+		moleArgs: []string{"deployment/noexec", "-n", "$NS"}, moleTimeout: 40 * time.Second,
+		naive: naiveSeq("$NS", false),
+		expert: [][]string{
+			{"get", "pods", "-n", "$NS"},
+			{"describe", "pod", "$POD", "-n", "$NS"},
+		},
+		kstatus: statusSeq("$NS"),
+	}
+}
+
+func sigVolumeMountFailed() scenario {
+	return scenario{
+		name:  "sig-volumemountfailed",
+		truth: []string{`missing-secret`, `failedmount|volumemountfailed|mountvolume`},
+		setup: func(f *fixture) error {
+			ns, err := f.namespace("$NS", nil)
+			if err != nil {
+				return err
+			}
+			return f.deployment(ns, "mnt", func(d *appsv1.Deployment) {
+				d.Spec.Template.Spec.Volumes = []corev1.Volume{{
+					Name:         "creds",
+					VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "missing-secret"}},
+				}}
+				d.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: "creds", MountPath: "/creds"}}
+			})
+		},
+		podNS: "$NS", podApp: "mnt",
+		moleArgs: []string{"deployment/mnt", "-n", "$NS"}, moleTimeout: 45 * time.Second,
+		naive: naiveSeq("$NS", false),
+		expert: [][]string{
+			{"get", "pods", "-n", "$NS"},
+			{"describe", "pod", "$POD", "-n", "$NS"},
+		},
+		kstatus: statusSeq("$NS"),
+	}
+}
+
 func collapseNodeNotReady() scenario {
 	return scenario{
 		name:  "collapse-nodenotready",

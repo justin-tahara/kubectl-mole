@@ -183,7 +183,7 @@ func compileTruth(f *fixture, patterns []string) ([]*regexp.Regexp, error) {
 
 // signatureNames matches any signature from the catalogue: a line stating
 // the class of failure pertains to the failure, whichever tool printed it.
-const signatureNames = `imagepullbackoff|crashloopbackoff|podunschedulable|pvcpending|oomkilled|probefailing|admissionrejected|quotaexceeded|nodenotready`
+const signatureNames = `imagepullbackoff|crashloopbackoff|podunschedulable|pvcpending|oomkilled|probefailing|admissionrejected|quotaexceeded|nodenotready|configmissing|createcontainerconfigerror|volumemountfailed|failedmount|podsandboxfailed|containerstartfailed|starterror|podevicted|evicted|podstuckterminating`
 
 // pertinentRes builds the density matcher: a line pertains to the failure
 // when it names a failing resource, states the ground-truth cause, or names

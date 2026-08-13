@@ -40,7 +40,12 @@ type Advisory struct {
 	// restart counts, so "1 termination in 24h" read from 40-minute-old
 	// pods is a 40-minute claim, not a 24-hour one.
 	ObservableHistory string `json:"observableHistory,omitempty"`
-	Text              string `json:"text"`
+	// Evidence is the previous-instance log tail behind the freshest
+	// termination, when it is still fetchable — the one artifact that
+	// explains a recovered crash, and the first thing kubelet GC or the
+	// next rollout erases. Same untrusted marking as failure evidence.
+	Evidence []Evidence `json:"evidence,omitempty"`
+	Text     string     `json:"text"`
 }
 
 // RecentRestarts summarizes fresh termination evidence across pods: how
@@ -68,10 +73,7 @@ func RecentRestarts(pods []*corev1.Pod, window time.Duration, now time.Time) *Ad
 		if c := p.CreationTimestamp.Time; !c.IsZero() && (oldest.IsZero() || c.Before(oldest)) {
 			oldest = c
 		}
-		statuses := make([]corev1.ContainerStatus, 0, len(p.Status.InitContainerStatuses)+len(p.Status.ContainerStatuses))
-		statuses = append(statuses, p.Status.InitContainerStatuses...)
-		statuses = append(statuses, p.Status.ContainerStatuses...)
-		for _, cs := range statuses {
+		for _, cs := range allStatuses(p) {
 			lifetime += cs.RestartCount
 			t := cs.LastTerminationState.Terminated
 			if t == nil || t.FinishedAt.IsZero() {
@@ -114,6 +116,39 @@ func RecentRestarts(pods []*corev1.Pod, window time.Duration, now time.Time) *Ad
 		ObservableHistory:    horizon,
 		Text:                 text,
 	}
+}
+
+// FreshestTermination selects the crash a recent-restarts advisory speaks
+// about: across the pods, the container whose last termination finished
+// most recently inside the window. It is the selection rule RecentRestarts
+// applies, exported so the evidence fetch reads the same crash the
+// advisory names. Nil when nothing terminated inside the window.
+func FreshestTermination(pods []*corev1.Pod, window time.Duration, now time.Time) (*corev1.Pod, *corev1.ContainerStatus) {
+	var (
+		pod      *corev1.Pod
+		status   *corev1.ContainerStatus
+		freshest time.Time
+	)
+	for _, p := range pods {
+		statuses := allStatuses(p)
+		for i := range statuses {
+			t := statuses[i].LastTerminationState.Terminated
+			if t == nil || t.FinishedAt.IsZero() || now.Sub(t.FinishedAt.Time) > window {
+				continue
+			}
+			if t.FinishedAt.After(freshest) {
+				freshest = t.FinishedAt.Time
+				pod, status = p, &statuses[i]
+			}
+		}
+	}
+	return pod, status
+}
+
+func allStatuses(p *corev1.Pod) []corev1.ContainerStatus {
+	s := make([]corev1.ContainerStatus, 0, len(p.Status.InitContainerStatuses)+len(p.Status.ContainerStatuses))
+	s = append(s, p.Status.InitContainerStatuses...)
+	return append(s, p.Status.ContainerStatuses...)
 }
 
 // coarseAge renders a duration at advisory precision: whole minutes under

@@ -84,9 +84,16 @@ honestly. Performance incidents need metrics, not settle semantics.
   every pod is younger than the window, carrying the oldest pod's age:
   on a continuously-deployed cluster, restart counts only reach back to
   the last rollout, and the advisory says so instead of letting
-  `lifetimeRestarts: 1` read as a first occurrence. Advisories never change the status or exit code, are
+  `lifetimeRestarts: 1` read as a first occurrence. When the crashed
+  instance's log tail is still fetchable, the advisory carries it in
+  `evidence[]` — the same clipped, `"untrusted": true` shape failure
+  evidence has, reading the exact instance the advisory's fields
+  describe. Best-effort: absent once kubelet GC or the next rollout has
+  erased the log. Advisories never change the status or exit code, are
   excluded from `contentHash` (the evidence is time-derived), and are
-  dropped first under `--budget`, counted in `truncated.advisories`.
+  dropped first under `--budget` — evidence off advisories first (counted
+  in `truncated.evidence`), then whole advisories, counted in
+  `truncated.advisories`.
   (They were flat strings in v0.2.2–v0.3.0 and were reshaped to objects
   pre-adoption.)
 - `truncated` is always present; nonzero counts mean items were dropped and

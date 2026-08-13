@@ -339,6 +339,7 @@ func (out *contextOutcome) fill(o *options, ctx context.Context, cs kubernetes.I
 			adv.Context = out.name
 			adv.Target = fmt.Sprintf("%s/%s", r.Target.Kind, r.Target.Name)
 			adv.Namespace = r.Target.Namespace
+			adv.Evidence = advisoryEvidence(ctx, cs, r.Result.Final.CurrentPods, o.restartWindow, now)
 			out.advisories = append(out.advisories, *adv)
 		}
 	}

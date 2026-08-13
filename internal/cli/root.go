@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -242,7 +243,7 @@ func (o *options) run(ctx context.Context, args []string) error {
 		Elapsed:    res.Elapsed,
 		Pods:       res.Final.CurrentPods,
 		OldPods:    res.Final.OldPods,
-		Advisories: o.settledAdvisories(res),
+		Advisories: o.settledAdvisories(ctx, cs, res),
 		Failures:   collapse.Collapse(rep.Findings),
 		Degraded:   rep.Degraded,
 	}))
@@ -293,7 +294,7 @@ func (o *options) runCustom(ctx context.Context, cs kubernetes.Interface, cfg *r
 		Elapsed:    res.Elapsed,
 		Pods:       res.Final.CurrentPods,
 		OldPods:    res.Final.OldPods,
-		Advisories: o.settledAdvisories(res),
+		Advisories: o.settledAdvisories(ctx, cs, res),
 		Failures:   collapse.Collapse(rep.Findings),
 		Degraded:   rep.Degraded,
 	}))
@@ -358,6 +359,7 @@ func (o *options) runFleet(ctx context.Context, cs kubernetes.Interface, ns stri
 			if adv := output.RecentRestarts(r.Result.Final.CurrentPods, o.restartWindow, now); adv != nil {
 				adv.Target = fmt.Sprintf("%s/%s", r.Target.Kind, r.Target.Name)
 				adv.Namespace = r.Target.Namespace
+				adv.Evidence = advisoryEvidence(ctx, cs, r.Result.Final.CurrentPods, o.restartWindow, now)
 				advisories = append(advisories, *adv)
 			}
 		}
@@ -462,14 +464,35 @@ func statusFor(o settle.Outcome) string {
 // single-target verdict — today, fresh restart evidence. Non-settled
 // verdicts carry diagnosis instead. The workload fields stay empty: the
 // verdict header already identifies the target.
-func (o *options) settledAdvisories(res settle.Result) []output.Advisory {
+func (o *options) settledAdvisories(ctx context.Context, cs kubernetes.Interface, res settle.Result) []output.Advisory {
 	if res.Outcome != settle.OutcomeSettled || o.restartWindow <= 0 {
 		return nil
 	}
-	if adv := output.RecentRestarts(res.Final.CurrentPods, o.restartWindow, time.Now()); adv != nil {
+	now := time.Now()
+	if adv := output.RecentRestarts(res.Final.CurrentPods, o.restartWindow, now); adv != nil {
+		adv.Evidence = advisoryEvidence(ctx, cs, res.Final.CurrentPods, o.restartWindow, now)
 		return []output.Advisory{*adv}
 	}
 	return nil
+}
+
+// advisoryEvidence fetches the previous-instance log tail behind a fresh
+// restart advisory (issue #45) — the crash FreshestTermination names is
+// the one the advisory's fields describe, so the evidence and the sentence
+// always speak about the same instance. Best-effort and bounded: one log
+// read per advisory-carrying target, and a verdict never fails over it.
+func advisoryEvidence(ctx context.Context, cs kubernetes.Interface, pods []*corev1.Pod, window time.Duration, now time.Time) []output.Evidence {
+	pod, status := output.FreshestTermination(pods, window, now)
+	if pod == nil {
+		return nil
+	}
+	fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	logs := signatures.CrashLogEvidence(fctx, cs, pod, *status)
+	if logs == "" {
+		return nil
+	}
+	return []output.Evidence{{Source: "log", Untrusted: true, Text: logs}}
 }
 
 // emit trims the verdict to the token budget, writes it in the chosen

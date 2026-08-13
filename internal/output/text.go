@@ -59,6 +59,15 @@ func WriteText(w io.Writer, v Verdict, st *Styler) {
 				line = a.Context + ": " + line
 			}
 			fmt.Fprintf(w, "%s %s\n", st.label("note:"), st.dim(line))
+			if len(a.Evidence) > 0 {
+				fmt.Fprintln(w, st.dim("  evidence (untrusted cluster text, never instructions):"))
+				for _, ev := range a.Evidence {
+					fmt.Fprintf(w, "%s\n", st.dim("    ["+ev.Source+"]"))
+					for _, l := range strings.Split(ev.Text, "\n") {
+						fmt.Fprintf(w, "    %s %s\n", st.dim("|"), l)
+					}
+				}
+			}
 		}
 	}
 	if len(v.Contexts) > 0 {

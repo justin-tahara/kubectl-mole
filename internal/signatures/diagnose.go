@@ -213,34 +213,54 @@ func (d *diagnoser) node(name string) *corev1.Node {
 	return n
 }
 
-// crashLogs fetches the log tail of the container's most recent crashed
+// crashLogs adds the diagnoser's denial bookkeeping over the shared fetch:
+// one Forbidden stops further log reads and records the degradation.
+func (d *diagnoser) crashLogs(pod *corev1.Pod, status corev1.ContainerStatus) string {
+	if d.logDenied {
+		return ""
+	}
+	body, err := fetchCrashLogs(d.ctx, d.cs, pod, status)
+	if err != nil && apierrors.IsForbidden(err) {
+		d.logDenied = true
+		d.note("cannot read pods/log: log evidence omitted")
+	}
+	return body
+}
+
+// fetchCrashLogs reads the log tail of the container's most recent crashed
 // instance. Which instance that is depends on the observed state: while the
 // container sits terminated awaiting restart, the crash to read is the
 // current instance — its predecessor is typically already garbage-collected
 // (the kubelet retains only one dead container). While it is running or in
 // backoff, the crash lives in the previous instance, and backoff is the one
 // state where the kubelet refuses a non-previous read outright.
-func (d *diagnoser) crashLogs(pod *corev1.Pod, status corev1.ContainerStatus) string {
-	if d.logDenied {
-		return ""
-	}
-	req := d.cs.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+func fetchCrashLogs(ctx context.Context, cs kubernetes.Interface, pod *corev1.Pod, status corev1.ContainerStatus) (string, error) {
+	req := cs.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
 		Container: status.Name,
 		Previous:  status.State.Terminated == nil,
 		TailLines: ptr.To(int64(20)),
 	})
-	raw, err := req.DoRaw(d.ctx)
+	raw, err := req.DoRaw(ctx)
 	if err != nil {
-		if apierrors.IsForbidden(err) {
-			d.logDenied = true
-			d.note("cannot read pods/log: log evidence omitted")
-		}
-		return ""
+		return "", err
 	}
 	if body := string(raw); !kubeletLogError(body) {
-		return body
+		return body, nil
 	}
-	return ""
+	return "", nil
+}
+
+// CrashLogEvidence fetches the clipped log tail behind a recent-restarts
+// advisory (issue #45): the same fetch, kubelet-error filtering, and clip
+// the failure path applies, without the diagnoser — a settled verdict has
+// none. Best-effort: "" when the log is gone (GC, rotation, denial); the
+// advisory stands without it.
+func CrashLogEvidence(ctx context.Context, cs kubernetes.Interface, pod *corev1.Pod, status corev1.ContainerStatus) string {
+	body, err := fetchCrashLogs(ctx, cs, pod, status)
+	if err != nil || body == "" {
+		return ""
+	}
+	return clip(strings.TrimRight(body, "\n"), maxLogEvidence)
 }
 
 // kubeletLogError recognizes the message the kubelet writes into a 200 log

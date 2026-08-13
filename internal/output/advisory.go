@@ -33,7 +33,12 @@ type Advisory struct {
 	LastExitCode         *int32 `json:"lastExitCode,omitempty"`
 	LastReason           string `json:"lastReason,omitempty"`
 	LastTerminatedAgo    string `json:"lastTerminatedAgo,omitempty"`
-	LifetimeRestarts     int32  `json:"lifetimeRestarts,omitempty"`
+	// LastFinishedAt is the freshest termination's absolute time (RFC 3339,
+	// UTC). It is the delta-stable identity of the crash: a new kill moves
+	// it, while LastTerminatedAgo churns every run and
+	// TerminationsInWindow slides as old kills age out.
+	LastFinishedAt   string `json:"lastFinishedAt,omitempty"`
+	LifetimeRestarts int32  `json:"lifetimeRestarts,omitempty"`
 	// ObservableHistory qualifies the window: present only when every pod
 	// is younger than the window, carrying the oldest pod's age. On a
 	// continuously-deployed cluster every rollout replaces pods and resets
@@ -112,6 +117,7 @@ func RecentRestarts(pods []*corev1.Pod, window time.Duration, now time.Time) *Ad
 		LastExitCode:         &code,
 		LastReason:           reason,
 		LastTerminatedAgo:    coarseAge(now.Sub(freshest)),
+		LastFinishedAt:       freshest.UTC().Format(time.RFC3339),
 		LifetimeRestarts:     lifetime,
 		ObservableHistory:    horizon,
 		Text:                 text,

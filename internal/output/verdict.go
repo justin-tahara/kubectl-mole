@@ -23,12 +23,15 @@ const (
 
 // Exit codes, one per status. 2 (progressing) is distinct from 1 (failed) on
 // purpose: automation must never roll back on a rollout that is still moving.
+// 5 exists only under --since: something moved, and the verdict is settled —
+// the kill-and-recover signal an incident loop waits for.
 const (
 	ExitSettled     = 0
 	ExitFailed      = 1
 	ExitProgressing = 2
 	ExitPermission  = 3
 	ExitNoMatch     = 4
+	ExitChanged     = 5
 )
 
 // Evidence is one piece of supporting material. The text originates inside
@@ -165,8 +168,12 @@ type Verdict struct {
 	// Omitted when empty; excluded from the content hash like Elapsed,
 	// because the evidence is time-derived ("6h ago").
 	Advisories []Advisory `json:"advisories,omitempty"`
-	Truncated   Truncated          `json:"truncated"`
-	ContentHash string             `json:"contentHash"`
+	// Delta reports what moved since the --since verdict; absent without
+	// the flag. Excluded from the content hash: it describes the pair of
+	// runs, not the observed state.
+	Delta       *Delta    `json:"delta,omitempty"`
+	Truncated   Truncated `json:"truncated"`
+	ContentHash string    `json:"contentHash"`
 }
 
 // StatusRank orders statuses by severity for merging: a multi-cluster
@@ -188,19 +195,37 @@ func StatusRank(s string) int {
 	return 0
 }
 
-// ExitCode maps the verdict status to the process exit code.
+// ExitCode maps the verdict status to the process exit code. Under --since
+// (Delta set, not baseline) the code reports the transition instead of the
+// standing state: 3 and 4 keep their meaning — a check that broke is never
+// "nothing moved" — then 0 means no transitions (a standing failure was
+// already reported last run; that is the quieting delta mode exists for),
+// 1/2 mean something moved and the verdict is failing/progressing, and 5
+// means something moved while the verdict is settled. A baseline run (no
+// previous verdict) keeps the normal codes: a loop's first run reports full
+// state, not an empty diff.
 func (v Verdict) ExitCode() int {
+	base := ExitFailed
 	switch v.Status {
 	case StatusSettled:
-		return ExitSettled
+		base = ExitSettled
 	case StatusProgressing:
-		return ExitProgressing
+		base = ExitProgressing
 	case StatusPermissionDenied:
-		return ExitPermission
+		base = ExitPermission
 	case StatusNoMatch:
-		return ExitNoMatch
+		base = ExitNoMatch
 	}
-	return ExitFailed
+	if v.Delta == nil || v.Delta.Baseline || base == ExitPermission || base == ExitNoMatch {
+		return base
+	}
+	if !v.Delta.Changed {
+		return ExitSettled
+	}
+	if base == ExitSettled {
+		return ExitChanged
+	}
+	return base
 }
 
 // Hash computes the verdict's content hash: the verdict with elapsed and the
@@ -211,6 +236,7 @@ func Hash(v Verdict) string {
 	v.Elapsed = ""
 	v.ContentHash = ""
 	v.Advisories = nil
+	v.Delta = nil
 	b, err := json.Marshal(v)
 	if err != nil {
 		// A struct of plain values cannot fail to marshal.

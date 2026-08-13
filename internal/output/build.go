@@ -24,6 +24,8 @@ type Input struct {
 	Elapsed   time.Duration
 	// Pods are the current-revision pods at the end of the watch.
 	Pods []*corev1.Pod
+	// OldPods are previous-revision pods still present at the end.
+	OldPods []*corev1.Pod
 	// Failures are the collapsed findings, in collapse order.
 	Failures []collapse.Entry
 	// Degraded lists reads that were denied and the analysis skipped.
@@ -39,6 +41,8 @@ type FleetTarget struct {
 	Reason    string
 	// Pods are the target's current-revision pods at the end of its watch.
 	Pods []*corev1.Pod
+	// OldPods are the target's previous-revision pods still present.
+	OldPods []*corev1.Pod
 }
 
 // FleetInput carries everything the builder needs for one fan-out run.
@@ -69,7 +73,7 @@ func Build(in Input) Verdict {
 		Namespace:     in.Namespace,
 		Reason:        in.Reason,
 		Elapsed:       in.Elapsed.Round(time.Second).String(),
-		Summary:       summarize(in.Pods, in.Failures),
+		Summary:       summarize(in.Pods, in.OldPods, in.Failures),
 		Failures:      buildFailures(in.Failures),
 		Degraded:      append([]string{}, in.Degraded...),
 	}
@@ -85,9 +89,10 @@ func Build(in Input) Verdict {
 // the fleet — failed beats progressing beats settled — because the exit code
 // derives from it and automation acts on the exit code.
 func BuildFleet(in FleetInput) Verdict {
-	var pods []*corev1.Pod
+	var pods, oldPods []*corev1.Pod
 	for _, t := range in.Targets {
 		pods = append(pods, t.Pods...)
+		oldPods = append(oldPods, t.OldPods...)
 	}
 	v := Verdict{
 		SchemaVersion: SchemaVersion,
@@ -97,7 +102,7 @@ func BuildFleet(in FleetInput) Verdict {
 		Selector:      in.Selector,
 		Reason:        fleetReason(in.Targets),
 		Elapsed:       in.Elapsed.Round(time.Second).String(),
-		Summary:       summarize(pods, in.Failures),
+		Summary:       summarize(pods, oldPods, in.Failures),
 		Fleet:         fleetCounts(in.Targets),
 		Namespaces:    namespaceVerdicts(in.Targets),
 		Failures:      buildFailures(in.Failures),
@@ -245,8 +250,8 @@ func namespaceVerdicts(targets []FleetTarget) []NamespaceVerdict {
 	return out
 }
 
-func summarize(pods []*corev1.Pod, entries []collapse.Entry) Summary {
-	s := Summary{Total: len(pods)}
+func summarize(pods, oldPods []*corev1.Pod, entries []collapse.Entry) Summary {
+	s := Summary{Total: len(pods), Old: len(oldPods)}
 	for _, p := range pods {
 		if podIsReady(p) {
 			s.Ready++

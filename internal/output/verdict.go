@@ -59,6 +59,12 @@ type Summary struct {
 	Total  int `json:"total"`
 	Ready  int `json:"ready"`
 	Failed int `json:"failed"`
+	// Old counts previous-revision pods still present at the end of the
+	// watch. Total and Ready count current-revision pods only, so without
+	// this field a verdict blocked on old pods reads "0/0 ready" while its
+	// reason counts pods the summary denies exist. Additive: omitted when
+	// zero.
+	Old int `json:"old,omitempty"`
 }
 
 // Truncated counts items dropped from the verdict. It is always emitted:

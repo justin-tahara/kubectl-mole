@@ -58,7 +58,10 @@ honestly. Performance incidents need metrics, not settle semantics.
   failing on one dead node is one `NodeNotReady` entry with
   `"affected": 40` — one fix, not forty.
 - `summary` counts current-revision pods. `"failed": 3` of `"total": 47`
-  means diagnose those 3, not the workload wholesale.
+  means diagnose those 3, not the workload wholesale. When previous-revision
+  pods still exist, `summary.old` counts them (additive, omitted at zero) —
+  so a verdict blocked on old pods never reads `0/0` while its reason
+  counts pods the summary denies.
 - `degraded[]` lists reads RBAC denied and the analysis skipped as a result.
   A verdict with degraded entries is still valid — just less evidenced.
 - `earlyExit: true` with `wedgedFor` marks a failure the wedged window

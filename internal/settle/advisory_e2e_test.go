@@ -49,6 +49,16 @@ func TestSettledVerdictCarriesRecentRestartAdvisory(t *testing.T) {
 	if !strings.Contains(adv.Text, "exit 7") || !strings.Contains(adv.Text, "1 termination(s)") {
 		t.Fatalf("advisory text should name the crash, got %q", adv.Text)
 	}
+	// A real kubelet records a reason for a non-zero exit; issue #44 wants
+	// it surfaced, structured and in the text.
+	if adv.LastReason != "Error" || !strings.Contains(adv.Text, "Error, exit 7") {
+		t.Fatalf("advisory should carry the kubelet's termination reason, got %+v", adv)
+	}
+	// The pod is seconds old — far younger than the 24h window — so the
+	// horizon qualifier must fire.
+	if adv.ObservableHistory == "" || !strings.Contains(adv.Text, "earlier history not visible") {
+		t.Fatalf("young pod must qualify the window, got %+v", adv)
+	}
 	t.Logf("advisory: %s", adv.Text)
 
 	// The quiet side: a workload that never restarted says nothing.

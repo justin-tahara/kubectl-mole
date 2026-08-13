@@ -152,6 +152,8 @@ exits 0 when a selector matches nothing, and consumers read that as success.
 
 Going deeper:
 
+- **The tour** — every picture in one place (demo, charts, a sample
+  verdict): [docs/tour.md](docs/tour.md)
 - **Agents and CI** — schema, budgets, fan-out, multi-cluster:
   [docs/AGENTS.md](docs/AGENTS.md)
 - **Helm and Argo CD** — verified recipes for gating upgrades, checking

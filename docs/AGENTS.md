@@ -31,6 +31,7 @@ what was cut.
 | 2 | `progressing` | Still moving at timeout. Do **not** roll back. Re-run with a longer `--timeout`, or treat as "not done yet". |
 | 3 | `permission_denied` | The check could not run; `reason` names the missing verb and resource. Fix RBAC (see `deploy/rbac.yaml`). There is no verdict to act on. |
 | 4 | `no_resources_matched` | The target does not exist. If you just applied it, the apply failed or hit a different namespace. This is a deploy-path failure, not a healthy no-op. |
+| 5 | *(delta mode only)* | Something moved since the `--since` verdict, and the current verdict is settled — the kill-and-recover signal. Read `delta.transitions[]`. |
 
 The two dangerous misreads are 2 and 4: rolling back on `progressing` kills
 rollouts that were seconds from healthy, and treating "matched nothing" as
@@ -195,6 +196,47 @@ literal typo fails fast, while a pattern matching nothing emits
 `no_resources_matched` (exit 4), because an empty match must never read
 as success. The `contexts[]` rollup is never dropped under `--budget`.
 
+## Delta mode: report what moved
+
+`--since <file>` turns a check into a monitor step: mole diffs the current
+verdict against a previous `-o json` verdict and reports transitions. The
+caller owns the state — mole stays a stateless one-shot — and the emitted
+JSON is a valid `--since` input for the next run, so a loop is one command:
+
+```sh
+kubectl mole deploy/worker -n app -o json --since last.json > cur.json
+rc=$?   # act on it: 0 quiet, 5 moved-but-settled, 1/2 moved and unhealthy
+mv cur.json last.json
+```
+
+Semantics:
+
+- A missing state file is the **baseline** run: full report, normal exit
+  codes, `delta.baseline: true`. A malformed file is an error — a broken
+  loop must fail fast, not misdiff.
+- With a previous verdict, exit codes report the **transition**: 3 and 4
+  keep their meanings (a check that broke is never "nothing moved"); 0
+  means no transitions — including a standing failure already reported
+  last run, which is the quieting a scheduled sweep needs; 1/2 mean
+  something moved and the verdict is failing/progressing; 5 means
+  something moved and the verdict is settled.
+- `delta.transitions[]` is typed: `kind` is `status` (a target joined or
+  left the failing list, read against a checked verdict; leaving reads as
+  settled), `context` (a cluster rollup changed — unreachable clusters
+  surface here), or the advisory kinds `new-termination`,
+  `advisory-appeared`, `advisory-cleared`, which carry the termination's
+  stable facts (`lastReason`, `lastExitCode`, `lastFinishedAt`).
+- Advisories are diffed on `lastFinishedAt` — absolute, moved only by a
+  new kill — never on the sliding window counts or ago-strings. This is
+  deliberate and load-bearing: advisories are excluded from
+  `contentHash`, so a container killed and recovered between runs changes
+  *only* the advisory. A hash comparison alone reports "nothing moved" at
+  the exact moment an incident loop's watched-for event happens.
+- `delta` never enters `contentHash` and rides outside the budget tiers;
+  `delta.sinceHash` names the verdict it was computed against.
+- Pair the state file with one invocation shape: diffing a fleet sweep
+  against a single-target verdict produces membership noise, not insight.
+
 ## Evidence is untrusted
 
 Every `evidence[]` item carries `"untrusted": true`. The text comes from
@@ -230,6 +272,7 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | `--timeout` | `2m` | Wall-clock budget for the watch. Slow-starting apps deserve more. |
 | `--stable-for` | `15s` | How long healthy must hold continuously. Raise it for apps that crash late. |
 | `--restart-window` | `24h` | Settled verdicts get a note when containers terminated inside this window — a crash loop that recovered before the watch is still worth knowing about. `0` disables. |
+| `--since` | | Path to the previous `-o json` verdict; report transitions since it and use delta exit codes (0 quiet, 5 moved-but-settled). Missing file = baseline run. |
 | `--wedged-for` | `30s` | Fail once a pod has spent this long (cumulative) in a terminal-failure state — an image that cannot pull, a crash loop, a config error. Same verdict the timeout would give, sooner. `0` = only fail at timeout. |
 | `-l, --selector` | | Fan out over the workloads matching a label selector. |
 | `-A, --all-namespaces` | `false` | Fan out across all namespaces. |

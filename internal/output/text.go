@@ -109,6 +109,19 @@ func WriteText(w io.Writer, v Verdict, st *Styler) {
 			}
 		}
 	}
+	if v.Delta != nil {
+		switch {
+		case v.Delta.Baseline:
+			fmt.Fprintf(w, "%s %s\n", st.label("changes:"), st.dim("baseline run — no previous verdict"))
+		case !v.Delta.Changed:
+			fmt.Fprintf(w, "%s none\n", st.label("changes (since last verdict):"))
+		default:
+			fmt.Fprintln(w, st.label("changes (since last verdict):"))
+			for _, tr := range v.Delta.Transitions {
+				fmt.Fprintf(w, "  %s\n", tr.Text)
+			}
+		}
+	}
 	if len(v.Degraded) > 0 {
 		fmt.Fprintln(w, st.label("degraded:"))
 		for _, m := range v.Degraded {

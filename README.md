@@ -48,6 +48,11 @@ into one command with a definite answer and a meaningful exit code.
   context at once: one merged verdict, a
   per-context rollup, identical causes collapsed across clusters. A cluster
   that cannot be checked fails the verdict.
+- **Delta mode.** `--since last.json` diffs against the previous verdict
+  and reports only what moved — a new kill, a recovery, a cluster gone
+  unreachable — with exit codes a shell loop can act on without parsing.
+  A container that crashed and recovered between checks is caught even
+  though the settled state looks identical.
 - **Jobs settle by finishing.** The `Complete` condition is success and
   retries are progress, not failure. CronJobs are judged by their most
   recent scheduled Job; bare Pods work too.
@@ -133,6 +138,7 @@ kubectl mole deployment/api -n prod -o json --budget 800
 kubectl mole -n prod -l app.kubernetes.io/instance=my-release
 kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform
 kubectl mole deployment/api -n prod --contexts us-east,us-west
+kubectl mole deployment/api -n prod -o json --since last.json
 ```
 
 The command watches until the workload settles or the timeout passes, then
@@ -146,6 +152,7 @@ stable, changes are additive. Exit codes:
 | 2 | Timed out while still legitimately progressing |
 | 3 | Insufficient permissions to complete the check |
 | 4 | The target matched no resources |
+| 5 | (`--since` only) Something moved since the last verdict, and it is settled now |
 
 Never roll back on exit 2 — that is how automation kills a deployment that
 was 30 seconds from healthy. And exit 4 is a real failure signal: kubectl

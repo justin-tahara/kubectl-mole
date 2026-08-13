@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -52,7 +53,11 @@ type options struct {
 	restartWindow time.Duration
 	budget        int
 	selector      string
-	contexts      []string
+	since         string
+	// sinceVerdict is the parsed --since file; nil with since set means
+	// the file did not exist — a baseline run.
+	sinceVerdict *output.Verdict
+	contexts     []string
 	allNamespaces bool
 	maxTargets    int
 	includeJobs   bool
@@ -120,6 +125,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().DurationVar(&o.restartWindow, "restart-window", 24*time.Hour, "annotate settled verdicts when containers terminated within this window (0 = no advisory)")
 	cmd.Flags().DurationVar(&o.wedgedFor, "wedged-for", 30*time.Second, "declare failure once a pod has spent this long wedged in a terminal-failure state, instead of waiting out the timeout (0 = only fail at timeout)")
 	cmd.Flags().IntVar(&o.budget, "budget", 0, "approximate token budget for output; 0 = unlimited (advisory, ~3 chars/token)")
+	cmd.Flags().StringVar(&o.since, "since", "", "path to a previous -o json verdict: report what changed since it and exit 0 when nothing did (missing file = baseline run with normal exit codes)")
 	cmd.Flags().StringVarP(&o.selector, "selector", "l", "", "label selector for fan-out over workloads (instead of TYPE/NAME)")
 	cmd.Flags().StringSliceVar(&o.contexts, "contexts", nil, "kubeconfig contexts to check concurrently (comma-separated or repeated); all clusters merge into one verdict")
 	cmd.Flags().BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "fan out across all namespaces")
@@ -178,6 +184,9 @@ func (o *options) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("unknown output format %q (want text or json)", o.output)
 	}
 	if err := validateSelection(args, o.selector, o.allNamespaces); err != nil {
+		return err
+	}
+	if err := o.loadSince(); err != nil {
 		return err
 	}
 	if len(o.contexts) > 0 {
@@ -495,10 +504,46 @@ func advisoryEvidence(ctx context.Context, cs kubernetes.Interface, pods []*core
 	return []output.Evidence{{Source: "log", Untrusted: true, Text: logs}}
 }
 
+// loadSince parses the --since verdict up front, before any watch: a broken
+// state file must fail in the first second, not after the timeout. A missing
+// file is not broken — it is the natural first run of a loop, and marks this
+// run as the baseline.
+func (o *options) loadSince() error {
+	if o.since == "" {
+		return nil
+	}
+	b, err := os.ReadFile(o.since)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read --since verdict: %w", err)
+	}
+	var prev output.Verdict
+	if err := json.Unmarshal(b, &prev); err != nil {
+		return fmt.Errorf("parse --since verdict %s: %w", o.since, err)
+	}
+	if prev.SchemaVersion != output.SchemaVersion {
+		return fmt.Errorf("--since verdict %s has schemaVersion %q, want %q", o.since, prev.SchemaVersion, output.SchemaVersion)
+	}
+	o.sinceVerdict = &prev
+	return nil
+}
+
 // emit trims the verdict to the token budget, writes it in the chosen
 // format, and records its exit code.
 func (o *options) emit(v output.Verdict) error {
 	defer perf.Phase("emit")()
+	// Delta rides before the budget: transitions are computed from the full
+	// verdict, and the emitted JSON stays a valid --since input for the
+	// next run.
+	if o.since != "" {
+		if o.sinceVerdict == nil {
+			v.Delta = &output.Delta{Baseline: true, Transitions: []output.Transition{}}
+		} else {
+			v.Delta = output.Diff(*o.sinceVerdict, v)
+		}
+	}
 	v = budget.Apply(v, o.budget)
 	o.exitCode = v.ExitCode()
 	if o.output == "json" {

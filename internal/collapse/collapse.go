@@ -59,7 +59,7 @@ func Collapse(findings []signatures.Finding) []Entry {
 			e.Examples = append(e.Examples, ref)
 		}
 		if f.Pod != "" {
-			e.Pods = append(e.Pods, f.Namespace+"/"+f.Pod)
+			e.Pods = append(e.Pods, qualify(f, f.Namespace+"/"+f.Pod))
 		}
 	}
 	out := make([]Entry, 0, len(order))
@@ -79,5 +79,15 @@ func anchorRef(f signatures.Finding) string {
 			name = name[i+1:]
 		}
 	}
-	return f.Namespace + "/" + name
+	return qualify(f, f.Namespace+"/"+name)
+}
+
+// qualify prefixes a ref with the finding's kubeconfig context, when set:
+// the grouping key (signature+cause) merges findings across clusters, so
+// refs must say which cluster each anchor lives in.
+func qualify(f signatures.Finding, ref string) string {
+	if f.Context == "" {
+		return ref
+	}
+	return f.Context + "/" + ref
 }

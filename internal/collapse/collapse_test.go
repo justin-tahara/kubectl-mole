@@ -112,3 +112,27 @@ func TestWorkloadAnchorCountsOnce(t *testing.T) {
 		t.Fatalf("workload-level entry anchors no pods, got %v", entries[0].Pods)
 	}
 }
+
+// TestCrossContextCollapse is the multi-cluster case: the same cause rolled
+// to two clusters is one entry, and context-qualified refs keep anchors with
+// identical namespace/pod names distinct across clusters.
+func TestCrossContextCollapse(t *testing.T) {
+	east := podFinding("prod", "api-7f9c-a", "container main is crash-looping (last exit code 7)")
+	east.Context = "east"
+	west := podFinding("prod", "api-7f9c-a", "container main is crash-looping (last exit code 7)")
+	west.Context = "west"
+	entries := Collapse([]signatures.Finding{east, west})
+	if len(entries) != 1 {
+		t.Fatalf("same cause in two contexts must be 1 entry, got %d: %+v", len(entries), entries)
+	}
+	e := entries[0]
+	if e.Affected != 2 {
+		t.Fatalf("identical pod names in two clusters are two anchors, got affected %d", e.Affected)
+	}
+	want := []string{"east/prod/api-7f9c-a", "west/prod/api-7f9c-a"}
+	for i, ref := range want {
+		if e.Examples[i] != ref || e.Pods[i] != ref {
+			t.Fatalf("refs must be context-qualified: examples %v pods %v, want %v", e.Examples, e.Pods, want)
+		}
+	}
+}

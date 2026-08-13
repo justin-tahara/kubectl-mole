@@ -30,6 +30,11 @@ type Finding struct {
 	// Namespace of the diagnosed workload. Set by Diagnose; the collapse
 	// layer needs it to keep anchors distinct across a fan-out.
 	Namespace string
+	// Context is the kubeconfig context of a multi-cluster run. Stamped by
+	// the CLI after diagnosis, never by Diagnose; empty on single-cluster
+	// runs. The collapse layer qualifies refs with it so identical causes
+	// merge across clusters without colliding anchors.
+	Context string
 }
 
 // Context gives detectors read access to observed state. Fetchers return

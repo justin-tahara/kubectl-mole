@@ -51,6 +51,13 @@ into one command with a definite answer and a meaningful exit code.
   DaemonSet in scope (`-n`, `-A`, `-l`; Jobs too with `--include-jobs`),
   watched off one shared informer set, returned as one verdict — worst
   outcome wins.
+- **Multi-cluster passthrough.** `--contexts us-east,us-west` runs the same
+  check in several kubeconfig contexts at once — no context switching, no
+  per-cluster loop. One shared wall clock, one merged verdict with a
+  per-context rollup, and causes collapse across clusters: one bad image
+  rolled everywhere is one entry, not one per cluster. A cluster that
+  cannot be checked fails the verdict — settled means every listed cluster
+  was verified.
 - **Jobs settle by finishing.** `kubectl mole job/migrate` succeeds on the
   Complete condition — retries are progress, not failure — and fails on
   `backoffLimit`, `activeDeadlineSeconds`, or suspension. CronJobs are
@@ -136,6 +143,8 @@ kubectl mole pod/debug-shell
 kubectl mole deployment/api -n prod -o json --budget 800
 kubectl mole -n prod -l app.kubernetes.io/name=api
 kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform
+kubectl mole deployment/api -n prod --contexts us-east,us-west
+kubectl mole --contexts us-east,us-west -A -l app.kubernetes.io/instance=my-release
 ```
 
 The command watches until the workload settles or the timeout passes, then
@@ -160,6 +169,14 @@ identical causes collapse across namespaces with a count, healthy workloads
 are counted, never enumerated. A selection matching more than
 `--max-targets` workloads (default 5,000) is refused with a request for a
 narrower selector.
+
+`--contexts` adds the cluster dimension to either mode: the same named
+target or the same fan-out, checked in every listed kubeconfig context
+concurrently, merged into one verdict. Each context gets a rollup line with
+its own status; `-n` applies everywhere, and without it each context keeps
+its own default namespace. A context that cannot be checked — unreachable,
+denied, or matching nothing — makes the verdict say so instead of quietly
+reporting the clusters that could.
 
 Consuming the output from an agent or CI? Read
 [docs/AGENTS.md](docs/AGENTS.md).

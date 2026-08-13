@@ -24,6 +24,13 @@ func WriteText(w io.Writer, v Verdict, st *Styler) {
 	if v.Selector != "" {
 		scope += ", selector " + v.Selector
 	}
+	if len(v.Contexts) > 0 {
+		names := make([]string, len(v.Contexts))
+		for i, c := range v.Contexts {
+			names[i] = c.Context
+		}
+		scope = "contexts " + strings.Join(names, ",") + "; " + scope
+	}
 	fmt.Fprintf(w, "%s (%s): %s\n", st.target(v.Target), scope, st.status(v.Status))
 	if v.Reason != "" {
 		fmt.Fprintf(w, "%s %s\n", st.label("reason:"), v.Reason)
@@ -43,10 +50,20 @@ func WriteText(w io.Writer, v Verdict, st *Styler) {
 			fmt.Fprintf(w, "%s %s\n", st.label("note:"), st.dim(a))
 		}
 	}
+	if len(v.Contexts) > 0 {
+		fmt.Fprintln(w, st.label("contexts:"))
+		for _, c := range v.Contexts {
+			fmt.Fprintf(w, "  %s: %s (%s)\n", c.Context, st.status(c.Status), c.Reason)
+		}
+	}
 	if len(v.Namespaces) > 0 {
 		fmt.Fprintln(w, st.label("namespaces:"))
 		for _, n := range v.Namespaces {
-			fmt.Fprintf(w, "  %s: %s\n", n.Namespace, st.status(n.Status))
+			ns := n.Namespace
+			if n.Context != "" {
+				ns += " (" + n.Context + ")"
+			}
+			fmt.Fprintf(w, "  %s: %s\n", ns, st.status(n.Status))
 			for _, t := range n.Targets {
 				fmt.Fprintf(w, "    %s: %s (%s)\n", t.Target, st.status(t.Status), t.Reason)
 			}

@@ -232,7 +232,7 @@ func commaInt(n int) string {
 // accuracyChart: horizontal bars — scenarios (of the failure corpus) where
 // each tool's output contained the ground-truth cause.
 func accuracyChart(th chartTheme, st benchStats) string {
-	const w, h = 880, 300
+	const w, h = 880, 316
 	plotX0, plotX1 := 170.0, 780.0
 	var b strings.Builder
 	svgOpen(&b, w, h, th)
@@ -246,6 +246,7 @@ func accuracyChart(th chartTheme, st benchStats) string {
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="72" x2="%.1f" y2="252" stroke="%s" stroke-width="1"/>`, x, x, th.grid)
 		text(&b, x, 270, th.inkMuted, 11, 400, "middle", strconv.Itoa(tick))
 	}
+	text(&b, (plotX0+plotX1)/2, 292, th.inkMuted, 11, 400, "middle", "failure scenarios where the output named the cause")
 
 	y := 86.0
 	for _, t := range chartTools {
@@ -274,7 +275,7 @@ func tokensChart(th chartTheme, st benchStats) string {
 	var b strings.Builder
 	svgOpen(&b, w, h, th)
 	text(&b, 24, 30, th.inkPrimary, 15, 600, "start", "Output stays flat as the fleet grows")
-	text(&b, 24, 50, th.inkSecond, 12, 400, "start", "tokens of combined output per fan-out check — both axes log")
+	text(&b, 24, 50, th.inkSecond, 12, 400, "start", "tokens of combined output for one fan-out check")
 
 	// Legend row (color chips + names).
 	lx := 24.0
@@ -293,6 +294,9 @@ func tokensChart(th chartTheme, st benchStats) string {
 		return plotY1 - (plotY1-plotY0)*(math.Log10(float64(tok))-lo)/(hi-lo)
 	}
 
+	// Axis titles live on the axes, not the subtitle.
+	text(&b, 24, plotY0-10, th.inkMuted, 11, 400, "start", "output tokens (log scale)")
+
 	// Horizontal gridlines per decade.
 	for d := 2; d <= 7; d++ {
 		yy := yFor(int(math.Pow(10, float64(d))))
@@ -302,7 +306,7 @@ func tokensChart(th chartTheme, st benchStats) string {
 	for _, n := range st.fanoutSizes {
 		text(&b, xFor(n), plotY1+22, th.inkMuted, 11, 400, "middle", commaInt(n))
 	}
-	text(&b, (plotX0+plotX1)/2, plotY1+44, th.inkMuted, 11, 400, "middle", "namespaces checked")
+	text(&b, (plotX0+plotX1)/2, plotY1+44, th.inkMuted, 11, 400, "middle", "namespaces checked (log scale)")
 
 	// Lines, end markers, and collision-nudged end labels.
 	type endLabel struct {

@@ -214,16 +214,33 @@ func TestCustomResource(t *testing.T) {
 			t.Fatalf("a crash-looping owned pod must fail the watch, got %s (%s)", res.Outcome, res.Reason)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		rep := signatures.Diagnose(ctx, cs, signatures.TargetRef{Kind: "Widget", Namespace: ns, Name: "boss"},
-			res.Final.CurrentPods, res.Final.OldPods)
-		for _, f := range rep.Findings {
-			if f.Signature == "CrashLoopBackOff" && f.Chain[0] == "Widget/boss" {
-				t.Logf("finding: %s: %s (chain %v)", f.Signature, f.Cause, f.Chain)
-				return
+		// The crash loop flickers through restart attempts, and a pod sampled
+		// mid-attempt shows Running — no waiting reason, no finding. Diagnose
+		// against a FRESH pod read until the backoff state is visible again;
+		// retrying the stale watch-end snapshot would never converge.
+		deadline := time.Now().Add(60 * time.Second)
+		var findings []signatures.Finding
+		for {
+			pod, err := cs.CoreV1().Pods(ns).Get(context.Background(), "boss-worker", metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("refetch owned pod: %v", err)
 			}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			rep := signatures.Diagnose(ctx, cs, signatures.TargetRef{Kind: "Widget", Namespace: ns, Name: "boss"},
+				[]*corev1.Pod{pod}, nil)
+			cancel()
+			findings = rep.Findings
+			for _, f := range findings {
+				if f.Signature == "CrashLoopBackOff" && f.Chain[0] == "Widget/boss" {
+					t.Logf("finding: %s: %s (chain %v)", f.Signature, f.Cause, f.Chain)
+					return
+				}
+			}
+			if time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(2 * time.Second)
 		}
-		t.Fatalf("no CrashLoopBackOff finding chained to the widget; findings: %+v", rep.Findings)
+		t.Fatalf("no CrashLoopBackOff finding chained to the widget; findings: %+v", findings)
 	})
 }

@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +11,7 @@ import (
 	"testing"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"github.com/justin-tahara/kubectl-mole/internal/output"
 	"github.com/justin-tahara/kubectl-mole/internal/settle"
@@ -111,5 +115,56 @@ func TestMergedNamespace(t *testing.T) {
 	o.allNamespaces = true
 	if got := o.mergedNamespace(agree); got != "" {
 		t.Fatalf("-A must render as *, got %q", got)
+	}
+}
+
+// Glob patterns select from whatever the kubeconfig holds; literals keep
+// their typo protection; the two mix.
+func TestContextNamesGlob(t *testing.T) {
+	o := contextOptions(t, []string{"al*"})
+	names, err := o.contextNames()
+	if err != nil || len(names) != 1 || names[0] != "alpha" {
+		t.Fatalf("glob al*: got %v (%v)", names, err)
+	}
+
+	o = contextOptions(t, []string{"*"})
+	names, err = o.contextNames()
+	if err != nil || len(names) != 2 || names[0] != "alpha" || names[1] != "beta" {
+		t.Fatalf("glob *: got %v (%v)", names, err)
+	}
+
+	o = contextOptions(t, []string{"b*", "alpha"})
+	names, err = o.contextNames()
+	if err != nil || len(names) != 2 || names[0] != "alpha" || names[1] != "beta" {
+		t.Fatalf("mixed literal+glob: got %v (%v)", names, err)
+	}
+
+	// A literal typo still fails fast even when a glob also matched.
+	o = contextOptions(t, []string{"*", "gamma"})
+	if _, err := o.contextNames(); err == nil || !strings.Contains(err.Error(), "gamma") {
+		t.Fatalf("literal typo beside a glob must still error, got %v", err)
+	}
+}
+
+// A pattern matching nothing is an empty selection, not a typo: the run
+// emits no_resources_matched (exit 4) without touching any cluster —
+// the empty-selector rule applied to the cluster dimension.
+func TestContextsGlobNoMatchIsExit4(t *testing.T) {
+	o := contextOptions(t, []string{"prod-*"})
+	var out bytes.Buffer
+	o.output = "json"
+	o.streams = genericiooptions.IOStreams{In: strings.NewReader(""), Out: &out, ErrOut: &out}
+	if err := o.runContexts(context.Background(), nil); err != nil {
+		t.Fatalf("empty glob match must emit a verdict, not error: %v", err)
+	}
+	var v output.Verdict
+	if err := json.Unmarshal(out.Bytes(), &v); err != nil {
+		t.Fatalf("verdict is not JSON: %v\n%s", err, out.String())
+	}
+	if v.Status != output.StatusNoMatch || o.exitCode != output.ExitNoMatch {
+		t.Fatalf("want no_resources_matched/4, got %s/%d", v.Status, o.exitCode)
+	}
+	if !strings.Contains(v.Reason, "prod-*") {
+		t.Fatalf("reason must name the pattern, got %q", v.Reason)
 	}
 }

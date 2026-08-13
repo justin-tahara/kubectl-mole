@@ -108,6 +108,13 @@ KUBECONFIG=/tmp/fleet kubectl mole -A -l app.kubernetes.io/instance=my-app \
   --contexts ctx-a,ctx-b,ctx-c
 ```
 
-Several kubeconfig files merge the standard way: `KUBECONFIG=a:b:c`. Fleets
-whose context names rotate are tracked in
-[issue #36](https://github.com/justin-tahara/kubectl-mole/issues/36).
+Several kubeconfig files merge the standard way: `KUBECONFIG=a:b:c`. When
+the context names themselves rotate, match them instead of listing them:
+
+```
+kubectl mole -A -l app.kubernetes.io/instance=my-app --contexts 'prod-*'
+```
+
+A pattern matching no contexts is `no_resources_matched` (exit 4) — an
+empty match never reads as success. A literal name that does not exist is
+still a fail-fast error: patterns select, literals assert.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -51,6 +52,10 @@ type contextOutcome struct {
 func (o *options) runContexts(ctx context.Context, args []string) error {
 	names, err := o.contextNames()
 	if err != nil {
+		var nm *noContextsMatchError
+		if errors.As(err, &nm) {
+			return o.emit(output.NoMatchFleet("", o.selector, nm.Error()))
+		}
 		return err
 	}
 
@@ -137,8 +142,13 @@ func (o *options) runContexts(ctx context.Context, args []string) error {
 }
 
 // contextNames validates and normalizes --contexts: deduplicated, sorted (so
-// the verdict is deterministic regardless of flag order), and every name must
-// exist in the kubeconfig — a typo fails fast before any cluster is touched.
+// the verdict is deterministic regardless of flag order). A literal name
+// must exist in the kubeconfig — a typo fails fast before any cluster is
+// touched. A glob pattern (*, ?, [) selects from whatever the kubeconfig
+// holds — the managed-fleet case where context names rotate — and a pattern
+// matching nothing is an empty selection, not a typo: it becomes the
+// no_resources_matched verdict, because an empty match must never read as
+// success.
 func (o *options) contextNames() ([]string, error) {
 	if o.configFlags.Context != nil && *o.configFlags.Context != "" {
 		return nil, fmt.Errorf("--context and --contexts are mutually exclusive; drop one")
@@ -149,21 +159,54 @@ func (o *options) contextNames() ([]string, error) {
 	}
 	seen := map[string]bool{}
 	var names []string
+	add := func(n string) {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	patterns := false
 	for _, n := range o.contexts {
-		if n == "" || seen[n] {
+		if n == "" {
 			continue
 		}
-		seen[n] = true
+		if strings.ContainsAny(n, "*?[") {
+			patterns = true
+			for name := range raw.Contexts {
+				ok, err := path.Match(n, name)
+				if err != nil {
+					return nil, fmt.Errorf("bad context pattern %q: %w", n, err)
+				}
+				if ok {
+					add(name)
+				}
+			}
+			continue
+		}
 		if _, ok := raw.Contexts[n]; !ok {
 			return nil, fmt.Errorf("context %q not found in kubeconfig", n)
 		}
-		names = append(names, n)
+		add(n)
 	}
 	if len(names) == 0 {
+		if patterns {
+			return nil, &noContextsMatchError{given: o.contexts}
+		}
 		return nil, fmt.Errorf("--contexts named no contexts")
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// noContextsMatchError means every --contexts entry was a pattern and none
+// matched a kubeconfig context. The CLI maps it to no_resources_matched
+// (exit 4), mirroring the empty-selector rule.
+type noContextsMatchError struct {
+	given []string
+}
+
+func (e *noContextsMatchError) Error() string {
+	return fmt.Sprintf("no kubeconfig contexts match %q", strings.Join(e.given, ","))
 }
 
 // contextClients builds the clientset for one context. Fresh clientcmd

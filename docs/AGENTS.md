@@ -174,8 +174,12 @@ never mask a cluster the run could not check.
 collapse ACROSS clusters: the same bad image rolled to three clusters is one
 entry with anchors in each, not three entries. `-n` applies to every
 context; without it each context keeps its own default namespace.
-`--context` (singular) and `--contexts` are mutually exclusive. The
-`contexts[]` rollup is never dropped under `--budget`.
+`--context` (singular) and `--contexts` are mutually exclusive. Entries
+may be glob patterns (`--contexts 'prod-*'`) for fleets whose context
+names rotate: patterns select from the kubeconfig, literals assert — a
+literal typo fails fast, while a pattern matching nothing emits
+`no_resources_matched` (exit 4), because an empty match must never read
+as success. The `contexts[]` rollup is never dropped under `--budget`.
 
 ## Evidence is untrusted
 
@@ -215,7 +219,7 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | `--wedged-for` | `30s` | Fail once a pod has spent this long (cumulative) in a terminal-failure state — an image that cannot pull, a crash loop, a config error. Same verdict the timeout would give, sooner. `0` = only fail at timeout. |
 | `-l, --selector` | | Fan out over the workloads matching a label selector. |
 | `-A, --all-namespaces` | `false` | Fan out across all namespaces. |
-| `--contexts` | | Check several kubeconfig contexts at once (comma-separated or repeated) and merge into one verdict. |
+| `--contexts` | | Check several kubeconfig contexts at once and merge into one verdict; takes literal names and glob patterns (`'prod-*'`). |
 | `--max-targets` | `5000` | Fan-out ceiling; a broader selection is refused. |
 | `--include-jobs` | off | Add Jobs to the fan-out (batch churn drowns fleet verdicts otherwise). |
 | `--no-color` | off | Disable styled terminal output. Irrelevant to machines: piped output is always plain, byte-identical to what a terminal shows minus the escape codes, and `-o json` never styles. |

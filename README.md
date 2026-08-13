@@ -43,8 +43,9 @@ into one command with a definite answer and a meaningful exit code.
 - **Fleet fan-out.** No target means every workload in scope (`-n`, `-A`,
   `-l`; Jobs too with `--include-jobs`), watched off one shared informer
   set, returned as one verdict — worst outcome wins.
-- **Multi-cluster passthrough.** `--contexts us-east,us-west` runs the same
-  check in every listed kubeconfig context at once: one merged verdict, a
+- **Multi-cluster passthrough.** `--contexts us-east,us-west` (globs too:
+  `--contexts 'prod-*'`) runs the same check in every matching kubeconfig
+  context at once: one merged verdict, a
   per-context rollup, identical causes collapsed across clusters. A cluster
   that cannot be checked fails the verdict.
 - **Jobs settle by finishing.** The `Complete` condition is success and

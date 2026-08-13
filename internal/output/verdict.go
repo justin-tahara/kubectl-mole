@@ -160,10 +160,11 @@ type Verdict struct {
 	Failures []Failure `json:"failures"`
 	Degraded []string  `json:"degraded"`
 	// Advisories are informational notes on an otherwise-clean verdict —
-	// today, fresh restart evidence on settled workloads. Additive and
-	// omitted when empty; excluded from the content hash like Elapsed,
-	// because their text is time-derived ("6h ago").
-	Advisories []string `json:"advisories,omitempty"`
+	// today, fresh restart evidence on settled workloads. Structured (see
+	// Advisory): automation reads the typed fields, display renders Text.
+	// Omitted when empty; excluded from the content hash like Elapsed,
+	// because the evidence is time-derived ("6h ago").
+	Advisories []Advisory `json:"advisories,omitempty"`
 	Truncated   Truncated          `json:"truncated"`
 	ContentHash string             `json:"contentHash"`
 }

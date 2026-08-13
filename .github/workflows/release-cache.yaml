@@ -1,0 +1,50 @@
+name: release-cache
+
+# Seeds the cross-compile build cache the release workflow restores.
+#
+# GitHub Actions cache isolation: a cache saved by a tag run is visible
+# only to that same tag and the default branch — never to future tags.
+# Seeding from a release run therefore never works (the v0.2.2 release
+# saved a 1.2GiB cache the v0.3.0 release provably could not restore).
+# Caches saved from main are restorable from every ref, so main is where
+# the seed is built.
+#
+# Runs when the dependency set changes, weekly (a restore refreshes the
+# 7-day unused-cache eviction clock; releases can be further apart), and
+# on demand.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - go.mod
+      - go.sum
+      - .github/workflows/release-cache.yaml
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # An exact-key hit means the seed is current: the restore itself
+      # refreshes the eviction clock and the snapshot build is skipped.
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: release-gobuild-${{ hashFiles('go.mod', 'go.sum') }}-main
+      # goreleaser build compiles every platform in the builds matrix —
+      # exactly the object cache `release --clean` wants — without
+      # archives, images, signing, or publishing.
+      - name: goreleaser snapshot build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./scripts/goreleaser.sh build --snapshot --clean

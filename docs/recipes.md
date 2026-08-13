@@ -91,3 +91,23 @@ One verdict, one exit code, a per-context rollup, and identical causes
 collapse across clusters — the same bad image in three clusters is one
 failure entry, not three. A cluster that cannot be checked fails the verdict
 instead of hiding. Details in [AGENTS.md](AGENTS.md#multi-cluster).
+
+### Managed fleets: materialize, then sweep
+
+`--contexts` needs the context entries in the local (merged) kubeconfig, but
+credential rotation is already handled: per-context clients go through
+kubeconfig `exec` plugins, so fresh tokens are fetched on every run. For
+fleets where the kubeconfigs themselves are minted on demand (EKS, access
+portals), materialize first, then sweep:
+
+```
+for c in $(aws eks list-clusters --query 'clusters[]' --output text); do
+  aws eks update-kubeconfig --name "$c" --kubeconfig /tmp/fleet
+done
+KUBECONFIG=/tmp/fleet kubectl mole -A -l app.kubernetes.io/instance=my-app \
+  --contexts ctx-a,ctx-b,ctx-c
+```
+
+Several kubeconfig files merge the standard way: `KUBECONFIG=a:b:c`. Fleets
+whose context names rotate are tracked in
+[issue #36](https://github.com/justin-tahara/kubectl-mole/issues/36).

@@ -73,11 +73,18 @@ honestly. Performance incidents need metrics, not settle semantics.
   `recent-restarts`), locator fields (`context` on `--contexts` runs,
   `target`/`namespace` on fan-out entries; all absent on a single-target
   verdict), the typed evidence (`terminationsInWindow`, `window`,
-  `lastExitCode`, `lastTerminatedAgo`, `lifetimeRestarts`), and `text`,
-  the display sentence. Rank and filter on the typed fields; never parse
-  `text` — display wording can change, field names cannot. `lastExitCode`
-  absent means the field does not apply to that advisory kind, never that
-  the code was zero. Advisories never change the status or exit code, are
+  `lastExitCode`, `lastReason`, `lastTerminatedAgo`, `lifetimeRestarts`),
+  and `text`, the display sentence. Rank and filter on the typed fields;
+  never parse `text` — display wording can change, field names cannot.
+  `lastExitCode` absent means the field does not apply to that advisory
+  kind, never that the code was zero. `lastReason` is the kubelet's
+  termination reason for the same instance (`OOMKilled`, `Error`, ...) —
+  it tells a memory kill from a liveness kill when both exit 137; absent
+  when the kubelet recorded none. `observableHistory` appears only when
+  every pod is younger than the window, carrying the oldest pod's age:
+  on a continuously-deployed cluster, restart counts only reach back to
+  the last rollout, and the advisory says so instead of letting
+  `lifetimeRestarts: 1` read as a first occurrence. Advisories never change the status or exit code, are
   excluded from `contentHash` (the evidence is time-derived), and are
   dropped first under `--budget`, counted in `truncated.advisories`.
   (They were flat strings in v0.2.2–v0.3.0 and were reshaped to objects

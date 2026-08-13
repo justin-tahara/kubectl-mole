@@ -111,6 +111,72 @@ func TestAdvisoryJSONShape(t *testing.T) {
 	}
 }
 
+// The dogfood shape behind issue #44: two exit-137 terminations with
+// opposite diagnoses. The kubelet's reason is the only field that tells
+// them apart, so the advisory must carry it — structured and in the text.
+func TestAdvisoryCarriesTerminationReason(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+
+	oom := restartyPod(1, 137, now.Add(-44*time.Minute))
+	oom.Status.ContainerStatuses[0].LastTerminationState.Terminated.Reason = "OOMKilled"
+	adv := RecentRestarts([]*corev1.Pod{oom}, 24*time.Hour, now)
+	if adv == nil || adv.LastReason != "OOMKilled" {
+		t.Fatalf("advisory must carry the kubelet's reason, got %+v", adv)
+	}
+	if !strings.Contains(adv.Text, "OOMKilled, exit 137") {
+		t.Fatalf("text must name the reason before the exit code, got %q", adv.Text)
+	}
+
+	killed := restartyPod(1, 137, now.Add(-44*time.Minute))
+	killed.Status.ContainerStatuses[0].LastTerminationState.Terminated.Reason = "Error"
+	if adv := RecentRestarts([]*corev1.Pod{killed}, 24*time.Hour, now); adv == nil || adv.LastReason != "Error" {
+		t.Fatalf("same exit code, different reason must be distinguishable, got %+v", adv)
+	}
+
+	// No recorded reason: field omitted, text keeps the reasonless form.
+	bare := RecentRestarts([]*corev1.Pod{restartyPod(1, 137, now.Add(-44*time.Minute))}, 24*time.Hour, now)
+	if bare.LastReason != "" || !strings.Contains(bare.Text, "(last: exit 137") {
+		t.Fatalf("missing reason must not invent one, got %+v", bare)
+	}
+	if b, _ := json.Marshal(bare); strings.Contains(string(b), "lastReason") {
+		t.Fatalf("empty reason must be omitted from JSON: %s", b)
+	}
+}
+
+// Issue #44's second gap: on a continuously-deployed cluster a 37-minute-old
+// pod makes "lifetime restarts: 1" read as first-occurrence when the
+// observable history is 37 minutes, not the 24h window. Pods younger than
+// the window must say so; pods older than it must not.
+func TestAdvisoryHistoryHorizon(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+
+	young := restartyPod(1, 137, now.Add(-20*time.Minute))
+	young.CreationTimestamp = metav1.Time{Time: now.Add(-37 * time.Minute)}
+	adv := RecentRestarts([]*corev1.Pod{young}, 24*time.Hour, now)
+	if adv.ObservableHistory != "37m" {
+		t.Fatalf("young pods must qualify the window, got %+v", adv)
+	}
+	if !strings.Contains(adv.Text, "note: pods younger than window (37m) — earlier history not visible") {
+		t.Fatalf("horizon note missing from text: %q", adv.Text)
+	}
+
+	// The oldest pod sets the horizon: one long-lived pod means the window
+	// really was observable, even if a sibling is fresh.
+	old := restartyPod(0, 0, time.Time{})
+	old.Status.ContainerStatuses[0].LastTerminationState.Terminated = nil
+	old.CreationTimestamp = metav1.Time{Time: now.Add(-48 * time.Hour)}
+	adv = RecentRestarts([]*corev1.Pod{young, old}, 24*time.Hour, now)
+	if adv.ObservableHistory != "" || strings.Contains(adv.Text, "note:") {
+		t.Fatalf("full-window history must not be qualified, got %+v", adv)
+	}
+
+	// Synthetic pods without creation timestamps (unit fixtures) stay
+	// unqualified rather than claiming a zero-length horizon.
+	if adv := RecentRestarts([]*corev1.Pod{restartyPod(1, 7, now.Add(-time.Hour))}, 24*time.Hour, now); adv.ObservableHistory != "" {
+		t.Fatalf("zero creation timestamp must not qualify, got %+v", adv)
+	}
+}
+
 // A zero exit code must survive to the JSON: absent means "not this
 // advisory kind", never "exited zero".
 func TestAdvisoryZeroExitCodeEmitted(t *testing.T) {

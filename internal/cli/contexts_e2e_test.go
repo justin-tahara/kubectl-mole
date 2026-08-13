@@ -167,8 +167,10 @@ func TestContextsSettleAcrossContexts(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
+	// Glob patterns on purpose: this also proves pattern expansion through
+	// the real CLI (mole-e* and mole-w* resolve to east/west, never dead).
 	v, exit := runMole(t, ctx, "deployment/steady", "-n", ns,
-		"--contexts", "mole-east,mole-west", "--kubeconfig", kubeconfig,
+		"--contexts", "mole-e*,mole-w*", "--kubeconfig", kubeconfig,
 		"-o", "json", "--timeout", "2m", "--stable-for", "5s")
 
 	if v.Status != output.StatusSettled || exit != 0 {

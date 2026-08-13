@@ -36,7 +36,10 @@ into one command with a definite answer and a meaningful exit code.
   same verdict the deadline would give, sooner. The window is evidence,
   not a deadline: the clock only advances while a pod is observably
   wedged, so a crash loop that flickers through restart attempts fails
-  in about a minute, not at exactly 30s.
+  in about a minute, not at exactly 30s. And settling does not launder
+  crash history: a workload whose containers terminated recently settles
+  with a note saying so (`--restart-window`, default 24h) — ancient
+  restarts stay quiet.
 - **Exit codes automation can act on.** `2` (still progressing) is not `1`
   (failed) — conflating them is how automation rolls back a deployment that
   was 30 seconds from healthy. `4` (nothing matched) is not `0` — kubectl

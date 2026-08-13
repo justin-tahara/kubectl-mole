@@ -67,6 +67,12 @@ honestly. Performance incidents need metrics, not settle semantics.
 - `earlyExit: true` with `wedgedFor` marks a failure the wedged window
   declared before the timeout. `reason` stays the cause alone. Both fields
   are additive and absent on every other verdict.
+- `advisories[]` holds informational notes on an otherwise-clean verdict —
+  fresh restart evidence on settled workloads (`--restart-window`, default
+  24h; a fleet prefixes each note with its workload). Advisories never
+  change the status or exit code, are excluded from `contentHash` (their
+  text is time-derived), and are dropped first under `--budget`, counted
+  in `truncated.advisories`.
 - `truncated` is always present; nonzero counts mean items were dropped and
   the picture is partial.
 - `contentHash` is stable across runs when nothing moved (it excludes
@@ -161,6 +167,7 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | `--budget` | `0` (unlimited) | Approximate output token budget (~3 chars/token, advisory). 600–1000 works well. |
 | `--timeout` | `2m` | Wall-clock budget for the watch. Slow-starting apps deserve more. |
 | `--stable-for` | `15s` | How long healthy must hold continuously. Raise it for apps that crash late. |
+| `--restart-window` | `24h` | Settled verdicts get a note when containers terminated inside this window — a crash loop that recovered before the watch is still worth knowing about. `0` disables. |
 | `--wedged-for` | `30s` | Fail once a pod has spent this long (cumulative) in a terminal-failure state — an image that cannot pull, a crash loop, a config error. Same verdict the timeout would give, sooner. `0` = only fail at timeout. |
 | `-l, --selector` | | Fan out over the workloads matching a label selector. |
 | `-A, --all-namespaces` | `false` | Fan out across all namespaces. |

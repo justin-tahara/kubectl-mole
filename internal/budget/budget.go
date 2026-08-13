@@ -43,6 +43,17 @@ func Apply(v output.Verdict, tokens int) output.Verdict {
 	if tokens <= 0 || Tokens(v) <= tokens {
 		return v
 	}
+	// Tier 0: advisories are informational — they go before anything
+	// diagnostic, and the drops are counted.
+	for len(v.Advisories) > 0 && Tokens(v) > tokens {
+		v.Advisories = v.Advisories[:len(v.Advisories)-1]
+		v.Truncated.Advisories++
+	}
+	if Tokens(v) <= tokens {
+		v.ContentHash = output.Hash(v)
+		return v
+	}
+
 	full := v.Failures
 	fullNamespaces := v.Namespaces
 

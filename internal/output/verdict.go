@@ -76,6 +76,8 @@ type Truncated struct {
 	Evidence int `json:"evidence"`
 	// Namespaces counts dropped per-namespace verdict entries (fan-out only).
 	Namespaces int `json:"namespaces"`
+	// Advisories dropped under --budget; additive, omitted at zero.
+	Advisories int `json:"advisories,omitempty"`
 }
 
 // FleetCounts summarizes a fan-out run's targets by outcome. Namespaces
@@ -129,8 +131,13 @@ type Verdict struct {
 	// Namespaces holds per-namespace verdicts for the namespaces with
 	// non-settled targets, sorted by namespace name.
 	Namespaces  []NamespaceVerdict `json:"namespaces,omitempty"`
-	Failures    []Failure          `json:"failures"`
-	Degraded    []string           `json:"degraded"`
+	Failures []Failure `json:"failures"`
+	Degraded []string  `json:"degraded"`
+	// Advisories are informational notes on an otherwise-clean verdict —
+	// today, fresh restart evidence on settled workloads. Additive and
+	// omitted when empty; excluded from the content hash like Elapsed,
+	// because their text is time-derived ("6h ago").
+	Advisories []string `json:"advisories,omitempty"`
 	Truncated   Truncated          `json:"truncated"`
 	ContentHash string             `json:"contentHash"`
 }
@@ -157,6 +164,7 @@ func (v Verdict) ExitCode() int {
 func Hash(v Verdict) string {
 	v.Elapsed = ""
 	v.ContentHash = ""
+	v.Advisories = nil
 	b, err := json.Marshal(v)
 	if err != nil {
 		// A struct of plain values cannot fail to marshal.

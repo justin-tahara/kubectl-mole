@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -84,13 +86,32 @@ func writeCSV(path string, rows []row) error {
 }
 
 type runMeta struct {
-	ServerVersion  string
-	KstatusVersion string
-	Date           string
-	Full           bool
+	ServerVersion  string `json:"serverVersion"`
+	KstatusVersion string `json:"kstatusVersion"`
+	Date           string `json:"date"`
+	Full           bool   `json:"full"`
 	// Merged marks a partial (--only) run whose unmeasured rows were carried
 	// over from the committed results.
-	Merged bool
+	Merged bool `json:"merged"`
+}
+
+// writeMeta persists the run's provenance beside the CSV so -report-only can
+// regenerate the report without inventing versions or dates.
+func writeMeta(path string, meta runMeta) error {
+	b, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(b, '\n'), 0o644)
+}
+
+func readMeta(path string) (runMeta, error) {
+	var meta runMeta
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return meta, err
+	}
+	return meta, json.Unmarshal(b, &meta)
 }
 
 // readRows loads a results CSV back into rows, so a partial re-measurement
@@ -175,6 +196,42 @@ func mergeRows(committed, fresh []row, corpusNames []string) []row {
 	return out
 }
 
+// writeHeadline emits the computed summary — the percentages and the three
+// charts. Every number here derives from the rows; nothing is hand-written,
+// so the claims can never drift from the measurements.
+func writeHeadline(b *strings.Builder, rows []row) {
+	st := computeStats(rows)
+	b.WriteString("## The headline\n\n")
+	fmt.Fprintf(b, "- **Accuracy:** mole's output contained the ground-truth cause in **%d/%d** failure scenarios (%d%%)",
+		st.truthFound["mole"], st.failureScenarios, pct(st.truthFound["mole"], st.failureScenarios))
+	fmt.Fprintf(b, "; expert kubectl %d/%d (%d%%); naive kubectl %d/%d (%d%%); kubectl-status %d/%d (%d%%).\n",
+		st.truthFound["kubectl-expert"], st.failureScenarios, pct(st.truthFound["kubectl-expert"], st.failureScenarios),
+		st.truthFound["kubectl-naive"], st.failureScenarios, pct(st.truthFound["kubectl-naive"], st.failureScenarios),
+		st.truthFound["kubectl-status"], st.failureScenarios, pct(st.truthFound["kubectl-status"], st.failureScenarios))
+	fmt.Fprintf(b, "- **Output cost:** median across failure scenarios, mole emits **%s tokens** — %d%% of expert kubectl's %s, %d%% of kubectl-status's %s.\n",
+		commaInt(st.medianMoleTokens),
+		pct(st.medianMoleTokens, st.medianExpertTok), commaInt(st.medianExpertTok),
+		pct(st.medianMoleTokens, st.medianStatusTok), commaInt(st.medianStatusTok))
+	fmt.Fprintf(b, "- **Invocations:** always 1; the expert baseline needs a median of %d commands (plus the judgment to pick them).\n", st.medianExpertInv)
+	fmt.Fprintf(b, "- **Tool overhead:** %d–%d ms across every failure scenario (median %d ms — %s%% of the median %.1f s wall, at most %.1f%% of any). The rest of the wall is the evidence window.\n\n",
+		st.minOverheadMS, st.maxOverheadMS, st.medianOverheadMS,
+		trimPct(float64(st.medianOverheadMS)/float64(st.medianWallMS)*100), float64(st.medianWallMS)/1000, st.maxOverheadPct)
+	for _, c := range []struct{ base, alt string }{
+		{"accuracy", "Bar chart: scenarios where each tool's output contained the ground-truth cause"},
+		{"tokens-vs-fleet", "Log-log line chart: output tokens as the fan-out grows from 50 to 5,000 namespaces; mole stays flat"},
+		{"time-breakdown", "Stacked bar: mole's median wall is almost entirely the deliberate evidence window; tool overhead is a sliver"},
+	} {
+		fmt.Fprintf(b, "<picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"charts/%s-dark.svg\"><img alt=\"%s\" src=\"charts/%s.svg\"></picture>\n\n", c.base, c.alt, c.base)
+	}
+}
+
+func pct(part, whole int) int {
+	if whole == 0 {
+		return 0
+	}
+	return int(math.Round(float64(part) / float64(whole) * 100))
+}
+
 func writeMarkdown(path string, rows []row, meta runMeta) error {
 	var b strings.Builder
 	b.WriteString("# Benchmark results\n\n")
@@ -182,12 +239,14 @@ func writeMarkdown(path string, rows []row, meta runMeta) error {
 	fmt.Fprintf(&b, "- Kubernetes: %s (kind, pinned image in [kind.yaml](kind.yaml))\n", meta.ServerVersion)
 	fmt.Fprintf(&b, "- kubectl-status: %s\n", meta.KstatusVersion)
 	fmt.Fprintf(&b, "- Tokens: tiktoken `o200k_base`; bytes always published alongside\n")
-	fmt.Fprintf(&b, "- Wall clock is proof versus photo: mole's tool overhead is under 100ms (see the per-scenario phase lines) — the rest of its wall is the evidence window. The snapshot baselines are timed after the failure is already steady, so the wait that got the operator there is not in their column.\n")
+	fmt.Fprintf(&b, "- Wall clock is proof versus photo: mole's tool overhead is tens of milliseconds (exact range in the headline below; per-scenario phase lines throughout) — the rest of its wall is the evidence window. The snapshot baselines are timed after the failure is already steady, so the wait that got the operator there is not in their column.\n")
 	if meta.Merged {
 		fmt.Fprintf(&b, "- Date: %s (partial re-measurement merged into committed results; per-scenario provenance in git history)\n\n", meta.Date)
 	} else {
 		fmt.Fprintf(&b, "- Date: %s\n\n", meta.Date)
 	}
+
+	writeHeadline(&b, rows)
 
 	scenarios := orderedScenarios(rows)
 

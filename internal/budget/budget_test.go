@@ -38,6 +38,33 @@ func verdict(failures ...output.Failure) output.Verdict {
 	return v
 }
 
+// Advisory evidence is the bulk, the advisory sentence is the signal:
+// under pressure the log tail goes first — counted — and the advisory
+// line survives budgets that could never hold both.
+func TestAdvisoryEvidenceStrippedBeforeAdvisories(t *testing.T) {
+	v := verdict()
+	v.Status = output.StatusSettled
+	v.Advisories = []output.Advisory{{
+		Kind: "recent-restarts",
+		Text: "containers restarted recently — 1 termination(s) in last 24h",
+		Evidence: []output.Evidence{{
+			Source: "log", Untrusted: true, Text: strings.Repeat("boom ", 800),
+		}},
+	}}
+	v.ContentHash = output.Hash(v)
+
+	got := Apply(v, Tokens(v)-800)
+	if len(got.Advisories) != 1 {
+		t.Fatalf("stripping evidence must save the advisory, got %+v", got.Truncated)
+	}
+	if len(got.Advisories[0].Evidence) != 0 || got.Truncated.Evidence != 1 {
+		t.Fatalf("advisory evidence must be dropped and counted: %+v", got.Truncated)
+	}
+	if got.Truncated.Advisories != 0 {
+		t.Fatalf("the advisory itself must survive: %+v", got.Truncated)
+	}
+}
+
 func TestZeroBudgetIsUnlimited(t *testing.T) {
 	v := verdict(failure("a", strings.Repeat("x", 4000)))
 	got := Apply(v, 0)

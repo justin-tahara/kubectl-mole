@@ -44,7 +44,15 @@ func Apply(v output.Verdict, tokens int) output.Verdict {
 		return v
 	}
 	// Tier 0: advisories are informational — they go before anything
-	// diagnostic, and the drops are counted.
+	// diagnostic, and the drops are counted. Their evidence goes first
+	// (the log tail is the bulk; the advisory sentence is the signal),
+	// then whole advisories from the end.
+	for i := len(v.Advisories) - 1; i >= 0 && Tokens(v) > tokens; i-- {
+		if n := len(v.Advisories[i].Evidence); n > 0 {
+			v.Advisories[i].Evidence = nil
+			v.Truncated.Evidence += n
+		}
+	}
 	for len(v.Advisories) > 0 && Tokens(v) > tokens {
 		v.Advisories = v.Advisories[:len(v.Advisories)-1]
 		v.Truncated.Advisories++
@@ -92,10 +100,10 @@ func Apply(v output.Verdict, tokens int) output.Verdict {
 
 	// Truncation accounting: dropped entries count as failures; evidence is
 	// counted only for entries that stayed (a dropped entry takes its
-	// evidence with it).
+	// evidence with it). Truncated.Evidence already carries the advisory
+	// strips from tier 0, so failure evidence adds to it.
 	v.Truncated.Failures = len(full) - len(v.Failures)
 	v.Truncated.Namespaces = len(fullNamespaces) - len(v.Namespaces)
-	v.Truncated.Evidence = 0
 	for i := range v.Failures {
 		v.Truncated.Evidence += len(full[i].Evidence) - len(v.Failures[i].Evidence)
 	}

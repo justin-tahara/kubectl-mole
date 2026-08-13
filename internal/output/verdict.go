@@ -82,12 +82,15 @@ type Truncated struct {
 
 // FleetCounts summarizes a fan-out run's targets by outcome. Namespaces
 // counts the distinct namespaces the fleet spans, settled ones included.
+// Contexts counts the kubeconfig contexts of a --contexts run; additive,
+// omitted on single-cluster runs.
 type FleetCounts struct {
 	Targets     int `json:"targets"`
 	Settled     int `json:"settled"`
 	Failed      int `json:"failed"`
 	Progressing int `json:"progressing"`
 	Namespaces  int `json:"namespaces"`
+	Contexts    int `json:"contexts,omitempty"`
 }
 
 // TargetVerdict is one non-settled fleet target inside a namespace entry.
@@ -100,10 +103,26 @@ type TargetVerdict struct {
 // NamespaceVerdict groups the non-settled targets of one namespace. Settled
 // targets are counted in fleet, never enumerated: a caller asking "did this
 // land" needs the failures, not hundreds of healthy workloads listed.
+// Context is the kubeconfig context of a --contexts run — entries then group
+// by (context, namespace), because the same namespace name in two clusters
+// is two different namespaces. Additive: single-cluster runs omit it.
 type NamespaceVerdict struct {
+	Context   string          `json:"context,omitempty"`
 	Namespace string          `json:"namespace"`
 	Status    string          `json:"status"`
 	Targets   []TargetVerdict `json:"targets"`
+}
+
+// ContextVerdict is one kubeconfig context's rollup inside a multi-cluster
+// verdict: its status and one-line reason, settled contexts included — the
+// "which cluster is broken" glance that the namespace entries (non-settled
+// only) cannot give. A context whose cluster could not be checked at all
+// (unreachable, RBAC, nothing matched) appears here with that status and no
+// namespace entries.
+type ContextVerdict struct {
+	Context string `json:"context"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason"`
 }
 
 // Verdict is the schemaVersion "1" output. Field names are the product:
@@ -128,8 +147,15 @@ type Verdict struct {
 	Summary   Summary `json:"summary"`
 	// Fleet summarizes a fan-out run's targets by outcome.
 	Fleet *FleetCounts `json:"fleet,omitempty"`
+	// Contexts holds per-context rollups of a --contexts run, sorted by
+	// context name. Additive: single-cluster verdicts omit it. The overall
+	// status is the worst across contexts (see StatusRank), and the budget
+	// layer never trims these entries — they are the skeleton of a
+	// multi-cluster verdict.
+	Contexts []ContextVerdict `json:"contexts,omitempty"`
 	// Namespaces holds per-namespace verdicts for the namespaces with
-	// non-settled targets, sorted by namespace name.
+	// non-settled targets, sorted by namespace name (by context first on
+	// --contexts runs).
 	Namespaces  []NamespaceVerdict `json:"namespaces,omitempty"`
 	Failures []Failure `json:"failures"`
 	Degraded []string  `json:"degraded"`
@@ -140,6 +166,25 @@ type Verdict struct {
 	Advisories []string `json:"advisories,omitempty"`
 	Truncated   Truncated          `json:"truncated"`
 	ContentHash string             `json:"contentHash"`
+}
+
+// StatusRank orders statuses by severity for merging: a multi-cluster
+// verdict takes the worst status across its contexts, and the exit code
+// follows it. An unverified cluster (permission denied, nothing matched)
+// outranks progressing on purpose — "keep waiting" must never mask a cluster
+// the run could not check — and everything outranks settled.
+func StatusRank(s string) int {
+	switch s {
+	case StatusFailed:
+		return 4
+	case StatusPermissionDenied:
+		return 3
+	case StatusNoMatch:
+		return 2
+	case StatusProgressing:
+		return 1
+	}
+	return 0
 }
 
 // ExitCode maps the verdict status to the process exit code.

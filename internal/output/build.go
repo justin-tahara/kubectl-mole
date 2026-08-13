@@ -40,8 +40,11 @@ type FleetTarget struct {
 	Kind      string
 	Name      string
 	Namespace string
-	Status    string // one of the Status* constants
-	Reason    string
+	// Context is the kubeconfig context the target was watched through;
+	// empty on single-cluster runs.
+	Context string
+	Status  string // one of the Status* constants
+	Reason  string
 	// Pods are the target's current-revision pods at the end of its watch.
 	Pods []*corev1.Pod
 	// OldPods are the target's previous-revision pods still present.
@@ -50,11 +53,21 @@ type FleetTarget struct {
 
 // FleetInput carries everything the builder needs for one fan-out run.
 type FleetInput struct {
+	// Target overrides the verdict's target field; "" means "workloads".
+	// A named target watched across --contexts keeps its own name — the
+	// verdict is fleet-shaped (N watches) but about one workload.
+	Target string
 	// Namespace scoping the run; "" means all namespaces.
 	Namespace string
 	Selector  string
-	Elapsed   time.Duration
-	// Targets in fleet order (namespace, kind, name).
+	// Contexts, when non-empty, marks a --contexts run: one entry per
+	// kubeconfig context, sorted by name. An entry with Status "" is
+	// filled from its own targets; a pre-filled entry states a
+	// context-level outcome (unreachable, permission denied, no match)
+	// that produced no targets.
+	Contexts []ContextVerdict
+	Elapsed  time.Duration
+	// Targets in fleet order (context, then namespace, kind, name).
 	Targets []FleetTarget
 	// EarlyExit marks that at least one target failed through the
 	// wedged-for window; WedgedFor is that window.
@@ -94,23 +107,38 @@ func Build(in Input) Verdict {
 
 // BuildFleet assembles the fan-out verdict. Status is the worst outcome in
 // the fleet — failed beats progressing beats settled — because the exit code
-// derives from it and automation acts on the exit code.
+// derives from it and automation acts on the exit code. On a --contexts run
+// the worst is taken across contexts by StatusRank, so a cluster the run
+// could not verify can never hide behind a settled or progressing one.
 func BuildFleet(in FleetInput) Verdict {
 	var pods, oldPods []*corev1.Pod
 	for _, t := range in.Targets {
 		pods = append(pods, t.Pods...)
 		oldPods = append(oldPods, t.OldPods...)
 	}
+	target := in.Target
+	if target == "" {
+		target = "workloads"
+	}
+	status := worstStatus(in.Targets)
+	reason := fleetReason(in.Targets)
+	contexts := fillContextVerdicts(in.Contexts, in.Targets)
+	if len(contexts) > 0 {
+		status, reason = contextsStatus(contexts)
+	}
+	counts := fleetCounts(in.Targets)
+	counts.Contexts = len(contexts)
 	v := Verdict{
 		SchemaVersion: SchemaVersion,
-		Status:        worstStatus(in.Targets),
-		Target:        "workloads",
+		Status:        status,
+		Target:        target,
 		Namespace:     fleetNamespace(in.Namespace),
 		Selector:      in.Selector,
-		Reason:        fleetReason(in.Targets),
+		Reason:        reason,
 		Elapsed:       in.Elapsed.Round(time.Second).String(),
 		Summary:       summarize(pods, oldPods, in.Failures),
-		Fleet:         fleetCounts(in.Targets),
+		Fleet:         counts,
+		Contexts:      contexts,
 		Namespaces:    namespaceVerdicts(in.Targets),
 		Failures:      buildFailures(in.Failures),
 		Degraded:      append([]string{}, in.Degraded...),
@@ -122,6 +150,69 @@ func BuildFleet(in FleetInput) Verdict {
 	}
 	v.ContentHash = Hash(v)
 	return v
+}
+
+// fillContextVerdicts completes the per-context rollup: an entry the caller
+// left with Status "" is judged from its own targets — a lone target lends
+// its status and reason verbatim, several fold like a fleet. Pre-filled
+// entries (context-level outcomes with no targets) pass through untouched.
+func fillContextVerdicts(entries []ContextVerdict, targets []FleetTarget) []ContextVerdict {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]ContextVerdict, len(entries))
+	for i, e := range entries {
+		if e.Status != "" {
+			out[i] = e
+			continue
+		}
+		var own []FleetTarget
+		for _, t := range targets {
+			if t.Context == e.Context {
+				own = append(own, t)
+			}
+		}
+		switch len(own) {
+		case 0:
+			// Never judge an unwatched context settled.
+			e.Status = StatusNoMatch
+			e.Reason = "no workloads found"
+		case 1:
+			e.Status = own[0].Status
+			e.Reason = own[0].Reason
+		default:
+			e.Status = worstStatus(own)
+			e.Reason = fleetReason(own)
+		}
+		out[i] = e
+	}
+	return out
+}
+
+// contextsStatus merges the per-context rollup into the verdict's status and
+// reason: worst status by StatusRank, and a reason counting the contexts at
+// that status — the per-cluster detail lives in the rollup entries.
+func contextsStatus(entries []ContextVerdict) (string, string) {
+	counts := map[string]int{}
+	worst := StatusSettled
+	for _, e := range entries {
+		counts[e.Status]++
+		if StatusRank(e.Status) > StatusRank(worst) {
+			worst = e.Status
+		}
+	}
+	n := len(entries)
+	switch worst {
+	case StatusFailed:
+		return worst, fmt.Sprintf("%d of %d contexts failed", counts[worst], n)
+	case StatusPermissionDenied:
+		return worst, fmt.Sprintf("%d of %d contexts permission denied", counts[worst], n)
+	case StatusNoMatch:
+		return worst, fmt.Sprintf("%d of %d contexts matched nothing", counts[worst], n)
+	case StatusProgressing:
+		return worst, fmt.Sprintf("%d of %d contexts still progressing at timeout", counts[worst], n)
+	}
+	return worst, fmt.Sprintf("all %d contexts settled", n)
 }
 
 // NoMatch is the exit-4 verdict: the target matched nothing. kubectl exits 0
@@ -207,9 +298,11 @@ func worstStatus(targets []FleetTarget) string {
 
 func fleetCounts(targets []FleetTarget) *FleetCounts {
 	c := &FleetCounts{Targets: len(targets)}
+	// Keyed by (context, namespace): the same namespace name in two
+	// clusters is two namespaces. Single-cluster contexts are all "".
 	namespaces := map[string]bool{}
 	for _, t := range targets {
-		namespaces[t.Namespace] = true
+		namespaces[t.Context+"\x00"+t.Namespace] = true
 		switch t.Status {
 		case StatusSettled:
 			c.Settled++
@@ -234,9 +327,10 @@ func fleetReason(targets []FleetTarget) string {
 	return fmt.Sprintf("all %d workloads settled", c.Targets)
 }
 
-// namespaceVerdicts groups the non-settled targets by namespace. Targets
-// arrive in fleet order (namespace, kind, name), so entries come out sorted
-// by namespace with their targets in kind/name order.
+// namespaceVerdicts groups the non-settled targets by (context, namespace):
+// the same namespace name in two clusters is two different namespaces.
+// Targets arrive in fleet order (context, then namespace, kind, name), so
+// entries come out sorted with their targets in kind/name order.
 func namespaceVerdicts(targets []FleetTarget) []NamespaceVerdict {
 	var out []NamespaceVerdict
 	idx := map[string]int{}
@@ -244,11 +338,12 @@ func namespaceVerdicts(targets []FleetTarget) []NamespaceVerdict {
 		if t.Status == StatusSettled {
 			continue
 		}
-		i, ok := idx[t.Namespace]
+		key := t.Context + "\x00" + t.Namespace
+		i, ok := idx[key]
 		if !ok {
 			i = len(out)
-			idx[t.Namespace] = i
-			out = append(out, NamespaceVerdict{Namespace: t.Namespace, Status: StatusProgressing, Targets: []TargetVerdict{}})
+			idx[key] = i
+			out = append(out, NamespaceVerdict{Context: t.Context, Namespace: t.Namespace, Status: StatusProgressing, Targets: []TargetVerdict{}})
 		}
 		if t.Status == StatusFailed {
 			out[i].Status = StatusFailed

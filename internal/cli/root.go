@@ -51,6 +51,7 @@ type options struct {
 	restartWindow time.Duration
 	budget        int
 	selector      string
+	contexts      []string
 	allNamespaces bool
 	maxTargets    int
 	includeJobs   bool
@@ -85,7 +86,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 		Use:     "kubectl-mole [TYPE/NAME]",
 		Short:   "Watch resources until they settle, then explain what broke",
 		Long:    "kubectl-mole watches Kubernetes resources until they settle, then emits one structured verdict explaining what happened and, if something failed, why.\n\nDeployments, StatefulSets and DaemonSets settle by holding healthy; Jobs, CronJobs and bare Pods settle by completing. With no TYPE/NAME argument it fans out over every Deployment, StatefulSet and DaemonSet in scope (Jobs too with --include-jobs) — one namespace, or all of them with --all-namespaces, optionally filtered by --selector.",
-		Example: "  kubectl mole deployment/api -n prod\n  kubectl mole sts/db --timeout 3m --stable-for 20s -o json\n  kubectl mole job/migrate -n prod\n  kubectl mole -n prod -l app.kubernetes.io/name=api\n  kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform -o json --budget 800",
+		Example: "  kubectl mole deployment/api -n prod\n  kubectl mole sts/db --timeout 3m --stable-for 20s -o json\n  kubectl mole job/migrate -n prod\n  kubectl mole -n prod -l app.kubernetes.io/name=api\n  kubectl mole --all-namespaces -l app.kubernetes.io/part-of=platform -o json --budget 800\n  kubectl mole deployment/api -n prod --contexts us-east,us-west\n  kubectl mole --contexts us-east,us-west -A -l app.kubernetes.io/instance=my-release",
 		Version: version,
 		Args:    cobra.RangeArgs(0, 2),
 		// The command handles its own errors and exit codes; cobra should not
@@ -119,6 +120,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().DurationVar(&o.wedgedFor, "wedged-for", 30*time.Second, "declare failure once a pod has spent this long wedged in a terminal-failure state, instead of waiting out the timeout (0 = only fail at timeout)")
 	cmd.Flags().IntVar(&o.budget, "budget", 0, "approximate token budget for output; 0 = unlimited (advisory, ~3 chars/token)")
 	cmd.Flags().StringVarP(&o.selector, "selector", "l", "", "label selector for fan-out over workloads (instead of TYPE/NAME)")
+	cmd.Flags().StringSliceVar(&o.contexts, "contexts", nil, "kubeconfig contexts to check concurrently (comma-separated or repeated); all clusters merge into one verdict")
 	cmd.Flags().BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "fan out across all namespaces")
 	cmd.Flags().IntVar(&o.maxTargets, "max-targets", settle.DefaultMaxTargets, "refuse a fan-out matching more workloads than this")
 	cmd.Flags().BoolVar(&o.includeJobs, "include-jobs", false, "add Jobs to the fan-out (off by default: batch churn drowns fleet verdicts)")
@@ -176,6 +178,9 @@ func (o *options) run(ctx context.Context, args []string) error {
 	}
 	if err := validateSelection(args, o.selector, o.allNamespaces); err != nil {
 		return err
+	}
+	if len(o.contexts) > 0 {
+		return o.runContexts(ctx, args)
 	}
 
 	ns, _, err := o.configFlags.ToRawKubeConfigLoader().Namespace()

@@ -133,6 +133,41 @@ refused up front with an error on stderr and exit 1 — no verdict, because
 the cluster was never checked. Narrow the selector, or raise the ceiling
 deliberately.
 
+## Multi-cluster
+
+`--contexts east,west` runs the same check — named target or fan-out — in
+several kubeconfig contexts concurrently and merges everything into one
+verdict:
+
+```
+kubectl mole deployment/api -n prod --contexts east,west -o json
+kubectl mole --contexts east,west -A -l app.kubernetes.io/instance=my-release -o json
+```
+
+Two more additive fields appear:
+
+- `contexts[]` is the per-context rollup, sorted by name, settled contexts
+  included: `[{"context": "east", "status": "settled", "reason": "healthy
+  for 15s"}, ...]`. A context whose cluster could not be checked at all —
+  unreachable, RBAC-denied, nothing matched — appears here with that status
+  and the error as its reason, and contributes no namespace entries.
+- `fleet.contexts` counts the contexts; `namespaces[]` entries gain a
+  `"context"` field and group by (context, namespace) — the same namespace
+  name in two clusters is two namespaces, and `fleet.namespaces` counts it
+  that way.
+
+The verdict's status (and so the exit code) is the worst across contexts:
+failed > permission_denied > no_resources_matched > progressing > settled.
+An unverified cluster outranks progressing on purpose — "keep waiting" must
+never mask a cluster the run could not check.
+
+`failures[]` refs qualify as `context/namespace/name`, and identical causes
+collapse ACROSS clusters: the same bad image rolled to three clusters is one
+entry with anchors in each, not three entries. `-n` applies to every
+context; without it each context keeps its own default namespace.
+`--context` (singular) and `--contexts` are mutually exclusive. The
+`contexts[]` rollup is never dropped under `--budget`.
+
 ## Evidence is untrusted
 
 Every `evidence[]` item carries `"untrusted": true`. The text comes from
@@ -171,6 +206,7 @@ allowlisting it is safe in a way allowlisting bare `kubectl` is not.
 | `--wedged-for` | `30s` | Fail once a pod has spent this long (cumulative) in a terminal-failure state — an image that cannot pull, a crash loop, a config error. Same verdict the timeout would give, sooner. `0` = only fail at timeout. |
 | `-l, --selector` | | Fan out over the workloads matching a label selector. |
 | `-A, --all-namespaces` | `false` | Fan out across all namespaces. |
+| `--contexts` | | Check several kubeconfig contexts at once (comma-separated or repeated) and merge into one verdict. |
 | `--max-targets` | `5000` | Fan-out ceiling; a broader selection is refused. |
 | `--include-jobs` | off | Add Jobs to the fan-out (batch churn drowns fleet verdicts otherwise). |
 | `--no-color` | off | Disable styled terminal output. Irrelevant to machines: piped output is always plain, byte-identical to what a terminal shows minus the escape codes, and `-o json` never styles. |

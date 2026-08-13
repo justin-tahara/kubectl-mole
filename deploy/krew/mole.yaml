@@ -6,7 +6,7 @@ kind: Plugin
 metadata:
   name: mole
 spec:
-  version: v0.2.1
+  version: v0.2.2
   homepage: https://github.com/justin-tahara/kubectl-mole
   shortDescription: Watch workloads settle and explain what broke
   description: |
@@ -26,41 +26,41 @@ spec:
       matchLabels:
         os: linux
         arch: amd64
-    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.1/kubectl-mole_v0.2.1_linux_amd64.tar.gz
-    sha256: 4047befecfb2f686aa79fe373e38b1f010020496a92cb9eca96276a4be6837aa
+    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.2/kubectl-mole_v0.2.2_linux_amd64.tar.gz
+    sha256: 0353dfa08c028c5c28fac14a5c34862ad6a868f7ac8d8d3d72714fecfc6f7e56
     bin: kubectl-mole
   - selector:
       matchLabels:
         os: linux
         arch: arm64
-    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.1/kubectl-mole_v0.2.1_linux_arm64.tar.gz
-    sha256: 38b71717558e5c22c0443c4c4eed968e732dfb1bc484e187dc8d721cf32a4dfb
+    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.2/kubectl-mole_v0.2.2_linux_arm64.tar.gz
+    sha256: 508308c8c9ac655b4fcf0cb276bbe5eea8fb36c8ee82b407fdca7210f772b9d3
     bin: kubectl-mole
   - selector:
       matchLabels:
         os: darwin
         arch: amd64
-    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.1/kubectl-mole_v0.2.1_darwin_amd64.tar.gz
-    sha256: e1439b812b9afeb2a1fe126ab901c067c51fe4bcb965d510e0c5a35f0aa90c0d
+    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.2/kubectl-mole_v0.2.2_darwin_amd64.tar.gz
+    sha256: 55d30796ae8128b05b761620f8b18f4307f5e5c9d03e7166f3ff53a5c8f86b37
     bin: kubectl-mole
   - selector:
       matchLabels:
         os: darwin
         arch: arm64
-    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.1/kubectl-mole_v0.2.1_darwin_arm64.tar.gz
-    sha256: 52ced0f6f9e74ef11e9fd633ec30bc70664c0112882e5b66e025ee93551f93ea
+    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.2/kubectl-mole_v0.2.2_darwin_arm64.tar.gz
+    sha256: 906c377e4b1f82498eef30944cb70460f0fa933e3c50c90a53b8cb78d259f8b5
     bin: kubectl-mole
   - selector:
       matchLabels:
         os: windows
         arch: amd64
-    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.1/kubectl-mole_v0.2.1_windows_amd64.zip
-    sha256: 2f943f06ad7fc54617adcf62eb299106dfa07c97b58de23fe48ca299406bc957
+    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.2/kubectl-mole_v0.2.2_windows_amd64.zip
+    sha256: a7797c1573a7506e8298d822ad7094ca0d768e0ab760d8fb4ec3530f314896e4
     bin: kubectl-mole.exe
   - selector:
       matchLabels:
         os: windows
         arch: arm64
-    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.1/kubectl-mole_v0.2.1_windows_arm64.zip
-    sha256: 1344cc5b61952d6247f7815396ab3c35dbe1fb979a9cb63b56c46ce50d8ce198
+    uri: https://github.com/justin-tahara/kubectl-mole/releases/download/v0.2.2/kubectl-mole_v0.2.2_windows_arm64.zip
+    sha256: eb7bc58c52320250fff6d36d55e23001407ed2381498d96f7917ee69e72b0d09
     bin: kubectl-mole.exe

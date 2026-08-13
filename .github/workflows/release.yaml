@@ -40,14 +40,16 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       # syft generates the per-archive SBOMs goreleaser attaches.
       - uses: anchore/sbom-action/download-syft@v0
-      # The six cross-compiles are ~80% of the pipeline (~350s cold), and
-      # setup-go's cache key is shared with CI, which only ever saves
-      # linux/amd64 artifacts. A release-scoped build cache turns repeat
-      # releases on unchanged deps into relinks.
-      - uses: actions/cache@v4
+      # The six cross-compiles are ~80% of the pipeline (~350s cold).
+      # Restore-only: caches saved by a tag run are visible ONLY to that
+      # same tag — never to future tags — so saving here would build a
+      # 1.2GiB orphan per release (v0.2.2 did; v0.3.0 provably could not
+      # see it). The cache is seeded from main by release-cache.yaml,
+      # and main-saved caches are restorable from every ref.
+      - uses: actions/cache/restore@v4
         with:
           path: ~/.cache/go-build
-          key: release-gobuild-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.ref_name }}
+          key: release-gobuild-${{ hashFiles('go.mod', 'go.sum') }}-main
           restore-keys: |
             release-gobuild-${{ hashFiles('go.mod', 'go.sum') }}-
             release-gobuild-
@@ -67,7 +69,10 @@ jobs:
         if: env.HOMEBREW_TAP_TOKEN != ''
         run: ./scripts/update-tap-formula.sh "$GITHUB_REF_NAME"
       # Opens a version-bump PR against krew-index from the .krew.yaml
-      # template. Only works once mole is in the index (first submission is
-      # manual), so a failure here must not fail the release.
+      # template. Gated until the plugin is accepted there: while the
+      # initial submission is under review, every release's bump PR is
+      # auto-closed noise on krew-index. Flip the KREW_INDEX_ACCEPTED
+      # repository variable to 'true' once the submission merges.
       - uses: rajatjindal/krew-release-bot@v0.0.51
+        if: vars.KREW_INDEX_ACCEPTED == 'true'
         continue-on-error: true

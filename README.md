@@ -79,6 +79,10 @@ Where mole loses, published per the methodology: raw `kubectl get` is
 cheaper on a healthy workload, the baselines answer instantly *after* a
 failure is already steady while mole pays its watch, and a focused
 `describe` can beat mole's signal density on workload-level failures.
+Read the wall-clock column as proof versus photo, though: mole's tool
+overhead is under 100ms — the rest of its wall is the evidence window —
+while a snapshot tool's number excludes however long it took the
+operator to know the state had stopped moving.
 
 ## Install
 

@@ -182,6 +182,7 @@ func writeMarkdown(path string, rows []row, meta runMeta) error {
 	fmt.Fprintf(&b, "- Kubernetes: %s (kind, pinned image in [kind.yaml](kind.yaml))\n", meta.ServerVersion)
 	fmt.Fprintf(&b, "- kubectl-status: %s\n", meta.KstatusVersion)
 	fmt.Fprintf(&b, "- Tokens: tiktoken `o200k_base`; bytes always published alongside\n")
+	fmt.Fprintf(&b, "- Wall clock is proof versus photo: mole's tool overhead is under 100ms (see the per-scenario phase lines) — the rest of its wall is the evidence window. The snapshot baselines are timed after the failure is already steady, so the wait that got the operator there is not in their column.\n")
 	if meta.Merged {
 		fmt.Fprintf(&b, "- Date: %s (partial re-measurement merged into committed results; per-scenario provenance in git history)\n\n", meta.Date)
 	} else {

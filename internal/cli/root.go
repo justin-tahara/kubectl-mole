@@ -234,6 +234,7 @@ func (o *options) run(ctx context.Context, args []string) error {
 		WedgedFor: o.wedgedFor,
 		Elapsed:   res.Elapsed,
 		Pods:      res.Final.CurrentPods,
+		OldPods:   res.Final.OldPods,
 		Failures:  collapse.Collapse(rep.Findings),
 		Degraded:  rep.Degraded,
 	}))
@@ -283,6 +284,7 @@ func (o *options) runCustom(ctx context.Context, cs kubernetes.Interface, cfg *r
 		WedgedFor: o.wedgedFor,
 		Elapsed:   res.Elapsed,
 		Pods:      res.Final.CurrentPods,
+		OldPods:   res.Final.OldPods,
 		Failures:  collapse.Collapse(rep.Findings),
 		Degraded:  rep.Degraded,
 	}))
@@ -330,6 +332,7 @@ func (o *options) runFleet(ctx context.Context, cs kubernetes.Interface, ns stri
 			Status:    statusFor(r.Result.Outcome),
 			Reason:    r.Result.Reason,
 			Pods:      r.Result.Final.CurrentPods,
+			OldPods:   r.Result.Final.OldPods,
 		})
 	}
 	earlyExit := false

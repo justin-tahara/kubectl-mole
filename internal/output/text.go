@@ -34,7 +34,11 @@ func WriteText(w io.Writer, v Verdict, st *Styler) {
 			st.label("targets:"), v.Fleet.Settled, v.Fleet.Targets, v.Fleet.Failed, v.Fleet.Progressing, v.Fleet.Namespaces)
 	}
 	if v.Status != StatusNoMatch && v.Status != StatusPermissionDenied {
-		fmt.Fprintf(w, "%s %d/%d ready, %d failed\n", st.label("pods:"), v.Summary.Ready, v.Summary.Total, v.Summary.Failed)
+		line := fmt.Sprintf("%d/%d ready, %d failed", v.Summary.Ready, v.Summary.Total, v.Summary.Failed)
+		if v.Summary.Old > 0 {
+			line += fmt.Sprintf(" (%d previous-revision still present)", v.Summary.Old)
+		}
+		fmt.Fprintf(w, "%s %s\n", st.label("pods:"), line)
 	}
 	if len(v.Namespaces) > 0 {
 		fmt.Fprintln(w, st.label("namespaces:"))

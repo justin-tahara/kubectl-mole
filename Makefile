@@ -77,8 +77,19 @@ snapshot:
 	goreleaser release --snapshot --clean --skip=sign
 
 # demo re-records assets/demo.gif against the mole-dev cluster (needs vhs).
+# The generated demo-config aliases that one cluster as prod-east/prod-west
+# so the multi-cluster scene records without a second cluster.
+DEMO_KUBECONFIG := $(CURDIR)/.kube/demo-config
 demo: build
 	KUBECONFIG=$(KIND_KUBECONFIG) kubectl --context kind-$(KIND_CLUSTER) apply -f assets/demo-scenario.yaml
 	KUBECONFIG=$(KIND_KUBECONFIG) kubectl --context kind-$(KIND_CLUSTER) -n shop \
 		wait deployment/checkout --for=condition=Available=false --timeout=90s
+	KUBECONFIG=$(KIND_KUBECONFIG) kubectl --context kind-$(KIND_CLUSTER) -n shop \
+		wait deployment/web --for=condition=Available --timeout=90s
+	KUBECONFIG=$(KIND_KUBECONFIG) kubectl config view --flatten --minify \
+		--context kind-$(KIND_CLUSTER) > $(DEMO_KUBECONFIG)
+	KUBECONFIG=$(DEMO_KUBECONFIG) kubectl config rename-context kind-$(KIND_CLUSTER) prod-east
+	KUBECONFIG=$(DEMO_KUBECONFIG) kubectl config set-context prod-west \
+		--cluster=kind-$(KIND_CLUSTER) --user=kind-$(KIND_CLUSTER)
+	KUBECONFIG=$(DEMO_KUBECONFIG) kubectl config use-context prod-east
 	vhs assets/demo.tape

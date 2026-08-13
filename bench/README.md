@@ -82,10 +82,12 @@ The failing pod handed to the baselines is resolved mechanically: the first
   mole's wall_ms largely reads as min(timeout, wedged-for + detection) —
   a settle-semantics choice, not a tool-efficiency measurement. The
   phase lines make this concrete: mole's tool overhead (preflight +
-  sync + diagnose + emit) is under 100ms in every scenario; the rest of
-  its wall IS the evidence window. Comparing it against a snapshot
-  tool's wall is comparing proof against photo — the snapshot's clock
-  starts after an operator already knows the state stopped moving.
+  sync + diagnose + emit) is tens of milliseconds — the computed range
+  and percentages live in RESULTS.md's headline section, derived from
+  the rows so they cannot drift; the rest of the wall IS the evidence
+  window. Comparing it against a snapshot tool's wall is comparing
+  proof against photo — the snapshot's clock starts after an operator
+  already knows the state stopped moving.
 - **truth_found** — whether the combined output contains the ground-truth
   cause. Each scenario defines regexes (in [scenarios.go](scenarios.go));
   all must match, case-insensitively, so a lucky keyword cannot count.

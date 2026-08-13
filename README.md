@@ -59,8 +59,10 @@ into one command with a definite answer and a meaningful exit code.
 
 Measured by [`make bench`](bench/README.md) on a pinned kind cluster:
 tiktoken `o200k_base` tokens of combined output, and whether that output
-contains the ground-truth cause (✓/✗). Full results:
-[bench/RESULTS.md](bench/RESULTS.md).
+contains the ground-truth cause (✓/✗). Full results, computed headline
+percentages, and charts: [bench/RESULTS.md](bench/RESULTS.md).
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="bench/charts/tokens-vs-fleet-dark.svg"><img alt="Log-log line chart: output tokens as the fan-out grows from 50 to 5,000 namespaces; mole stays flat near 650 while the baselines grow to millions" src="bench/charts/tokens-vs-fleet.svg"></picture>
 
 | Scenario | mole | expert kubectl | naive kubectl | kubectl-status |
 |---|---|---|---|---|
@@ -80,9 +82,10 @@ cheaper on a healthy workload, the baselines answer instantly *after* a
 failure is already steady while mole pays its watch, and a focused
 `describe` can beat mole's signal density on workload-level failures.
 Read the wall-clock column as proof versus photo, though: mole's tool
-overhead is under 100ms — the rest of its wall is the evidence window —
-while a snapshot tool's number excludes however long it took the
-operator to know the state had stopped moving.
+overhead tops out below 2% of its wall (the computed range is in the
+results headline) — the rest is the evidence window — while a snapshot
+tool's number excludes however long it took the operator to know the
+state had stopped moving.
 
 ## Install
 

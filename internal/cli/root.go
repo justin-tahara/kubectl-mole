@@ -348,15 +348,17 @@ func (o *options) runFleet(ctx context.Context, cs kubernetes.Interface, ns stri
 	for _, r := range results {
 		earlyExit = earlyExit || r.Result.WedgedOut
 	}
-	var advisories []string
+	var advisories []output.Advisory
 	if o.restartWindow > 0 {
 		now := time.Now()
 		for _, r := range results {
 			if r.Result.Outcome != settle.OutcomeSettled {
 				continue
 			}
-			if adv := output.RecentRestarts(r.Result.Final.CurrentPods, o.restartWindow, now); adv != "" {
-				advisories = append(advisories, fmt.Sprintf("%s/%s -n %s: %s", r.Target.Kind, r.Target.Name, r.Target.Namespace, adv))
+			if adv := output.RecentRestarts(r.Result.Final.CurrentPods, o.restartWindow, now); adv != nil {
+				adv.Target = fmt.Sprintf("%s/%s", r.Target.Kind, r.Target.Name)
+				adv.Namespace = r.Target.Namespace
+				advisories = append(advisories, *adv)
 			}
 		}
 	}
@@ -458,13 +460,14 @@ func statusFor(o settle.Outcome) string {
 
 // settledAdvisories computes the informational notes for a settled
 // single-target verdict — today, fresh restart evidence. Non-settled
-// verdicts carry diagnosis instead.
-func (o *options) settledAdvisories(res settle.Result) []string {
+// verdicts carry diagnosis instead. The workload fields stay empty: the
+// verdict header already identifies the target.
+func (o *options) settledAdvisories(res settle.Result) []output.Advisory {
 	if res.Outcome != settle.OutcomeSettled || o.restartWindow <= 0 {
 		return nil
 	}
-	if adv := output.RecentRestarts(res.Final.CurrentPods, o.restartWindow, time.Now()); adv != "" {
-		return []string{adv}
+	if adv := output.RecentRestarts(res.Final.CurrentPods, o.restartWindow, time.Now()); adv != nil {
+		return []output.Advisory{*adv}
 	}
 	return nil
 }

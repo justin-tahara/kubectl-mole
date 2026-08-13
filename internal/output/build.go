@@ -32,7 +32,7 @@ type Input struct {
 	Degraded []string
 	// Advisories are informational notes (fresh restart evidence on a
 	// settled workload); the verdict outcome is unaffected.
-	Advisories []string
+	Advisories []Advisory
 }
 
 // FleetTarget carries one fleet member's outcome into the builder.
@@ -77,8 +77,9 @@ type FleetInput struct {
 	Failures []collapse.Entry
 	Degraded []string
 	// Advisories are informational notes across the fleet's settled
-	// targets, each prefixed with its workload.
-	Advisories []string
+	// targets, each carrying its workload (and context) in the typed
+	// fields.
+	Advisories []Advisory
 }
 
 // Build assembles the schemaVersion "1" verdict. Ordering is inherited from

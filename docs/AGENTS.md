@@ -69,10 +69,19 @@ honestly. Performance incidents need metrics, not settle semantics.
   are additive and absent on every other verdict.
 - `advisories[]` holds informational notes on an otherwise-clean verdict —
   fresh restart evidence on settled workloads (`--restart-window`, default
-  24h; a fleet prefixes each note with its workload). Advisories never
-  change the status or exit code, are excluded from `contentHash` (their
-  text is time-derived), and are dropped first under `--budget`, counted
-  in `truncated.advisories`.
+  24h). Each advisory is an object: `kind` (a stable enum, today
+  `recent-restarts`), locator fields (`context` on `--contexts` runs,
+  `target`/`namespace` on fan-out entries; all absent on a single-target
+  verdict), the typed evidence (`terminationsInWindow`, `window`,
+  `lastExitCode`, `lastTerminatedAgo`, `lifetimeRestarts`), and `text`,
+  the display sentence. Rank and filter on the typed fields; never parse
+  `text` — display wording can change, field names cannot. `lastExitCode`
+  absent means the field does not apply to that advisory kind, never that
+  the code was zero. Advisories never change the status or exit code, are
+  excluded from `contentHash` (the evidence is time-derived), and are
+  dropped first under `--budget`, counted in `truncated.advisories`.
+  (They were flat strings in v0.2.2–v0.3.0 and were reshaped to objects
+  pre-adoption.)
 - `truncated` is always present; nonzero counts mean items were dropped and
   the picture is partial.
 - `contentHash` is stable across runs when nothing moved (it excludes

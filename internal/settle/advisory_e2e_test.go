@@ -40,13 +40,16 @@ func TestSettledVerdictCarriesRecentRestartAdvisory(t *testing.T) {
 		t.Fatalf("crash-once deployment must settle, got %s (%s)", res.Outcome, res.Reason)
 	}
 	adv := output.RecentRestarts(res.Final.CurrentPods, 24*time.Hour, time.Now())
-	if adv == "" {
+	if adv == nil {
 		t.Fatal("settled verdict must carry the fresh termination advisory")
 	}
-	if !strings.Contains(adv, "exit 7") || !strings.Contains(adv, "1 termination(s)") {
-		t.Fatalf("advisory should name the crash, got %q", adv)
+	if adv.LastExitCode == nil || *adv.LastExitCode != 7 || adv.TerminationsInWindow != 1 {
+		t.Fatalf("advisory fields should name the crash, got %+v", adv)
 	}
-	t.Logf("advisory: %s", adv)
+	if !strings.Contains(adv.Text, "exit 7") || !strings.Contains(adv.Text, "1 termination(s)") {
+		t.Fatalf("advisory text should name the crash, got %q", adv.Text)
+	}
+	t.Logf("advisory: %s", adv.Text)
 
 	// The quiet side: a workload that never restarted says nothing.
 	create(t, cs, ns, newDeployment("calm", 1))
@@ -54,7 +57,7 @@ func TestSettledVerdictCarriesRecentRestartAdvisory(t *testing.T) {
 	if res.Outcome != settle.OutcomeSettled {
 		t.Fatalf("calm deployment must settle, got %s (%s)", res.Outcome, res.Reason)
 	}
-	if adv := output.RecentRestarts(res.Final.CurrentPods, 24*time.Hour, time.Now()); adv != "" {
-		t.Fatalf("unrestarted workload must stay quiet, got %q", adv)
+	if adv := output.RecentRestarts(res.Final.CurrentPods, 24*time.Hour, time.Now()); adv != nil {
+		t.Fatalf("unrestarted workload must stay quiet, got %+v", adv)
 	}
 }

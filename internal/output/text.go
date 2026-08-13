@@ -47,7 +47,18 @@ func WriteText(w io.Writer, v Verdict, st *Styler) {
 		}
 		fmt.Fprintf(w, "%s %s\n", st.label("pods:"), line)
 		for _, a := range v.Advisories {
-			fmt.Fprintf(w, "%s %s\n", st.label("note:"), st.dim(a))
+			// The display line is composed from the typed fields, exactly
+			// as the flat strings used to read: workload prefix on fan-out
+			// entries, context prefix on --contexts runs, bare text on a
+			// single target.
+			line := a.Text
+			if a.Target != "" {
+				line = fmt.Sprintf("%s -n %s: %s", a.Target, a.Namespace, a.Text)
+			}
+			if a.Context != "" {
+				line = a.Context + ": " + line
+			}
+			fmt.Fprintf(w, "%s %s\n", st.label("note:"), st.dim(line))
 		}
 	}
 	if len(v.Contexts) > 0 {

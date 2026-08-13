@@ -42,7 +42,7 @@ type contextOutcome struct {
 	// Status stays "" when targets speak for themselves.
 	entry      output.ContextVerdict
 	targets    []output.FleetTarget
-	advisories []string
+	advisories []output.Advisory
 	findings   []signatures.Finding
 	degraded   []string
 	earlyExit  bool
@@ -93,7 +93,8 @@ func (o *options) runContexts(ctx context.Context, args []string) error {
 	entries := make([]output.ContextVerdict, len(outs))
 	var targets []output.FleetTarget
 	var findings []signatures.Finding
-	var advisories, degraded []string
+	var advisories []output.Advisory
+	var degraded []string
 	seenDegraded := map[string]bool{}
 	earlyExit := false
 	for i, out := range outs {
@@ -291,8 +292,11 @@ func (out *contextOutcome) fill(o *options, ctx context.Context, cs kubernetes.I
 		if r.Result.Outcome != settle.OutcomeSettled {
 			continue
 		}
-		if adv := output.RecentRestarts(r.Result.Final.CurrentPods, o.restartWindow, now); adv != "" {
-			out.advisories = append(out.advisories, fmt.Sprintf("%s: %s/%s -n %s: %s", out.name, r.Target.Kind, r.Target.Name, r.Target.Namespace, adv))
+		if adv := output.RecentRestarts(r.Result.Final.CurrentPods, o.restartWindow, now); adv != nil {
+			adv.Context = out.name
+			adv.Target = fmt.Sprintf("%s/%s", r.Target.Kind, r.Target.Name)
+			adv.Namespace = r.Target.Namespace
+			out.advisories = append(out.advisories, *adv)
 		}
 	}
 }

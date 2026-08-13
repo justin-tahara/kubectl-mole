@@ -30,6 +30,9 @@ type Input struct {
 	Failures []collapse.Entry
 	// Degraded lists reads that were denied and the analysis skipped.
 	Degraded []string
+	// Advisories are informational notes (fresh restart evidence on a
+	// settled workload); the verdict outcome is unaffected.
+	Advisories []string
 }
 
 // FleetTarget carries one fleet member's outcome into the builder.
@@ -60,6 +63,9 @@ type FleetInput struct {
 	// Failures are the collapsed findings across the whole fleet.
 	Failures []collapse.Entry
 	Degraded []string
+	// Advisories are informational notes across the fleet's settled
+	// targets, each prefixed with its workload.
+	Advisories []string
 }
 
 // Build assembles the schemaVersion "1" verdict. Ordering is inherited from
@@ -76,6 +82,7 @@ func Build(in Input) Verdict {
 		Summary:       summarize(in.Pods, in.OldPods, in.Failures),
 		Failures:      buildFailures(in.Failures),
 		Degraded:      append([]string{}, in.Degraded...),
+		Advisories:    in.Advisories,
 	}
 	if in.EarlyExit {
 		v.EarlyExit = true
@@ -107,6 +114,7 @@ func BuildFleet(in FleetInput) Verdict {
 		Namespaces:    namespaceVerdicts(in.Targets),
 		Failures:      buildFailures(in.Failures),
 		Degraded:      append([]string{}, in.Degraded...),
+		Advisories:    in.Advisories,
 	}
 	if in.EarlyExit {
 		v.EarlyExit = true

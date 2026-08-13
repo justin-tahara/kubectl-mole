@@ -39,6 +39,9 @@ func WriteText(w io.Writer, v Verdict, st *Styler) {
 			line += fmt.Sprintf(" (%d previous-revision still present)", v.Summary.Old)
 		}
 		fmt.Fprintf(w, "%s %s\n", st.label("pods:"), line)
+		for _, a := range v.Advisories {
+			fmt.Fprintf(w, "%s %s\n", st.label("note:"), st.dim(a))
+		}
 	}
 	if len(v.Namespaces) > 0 {
 		fmt.Fprintln(w, st.label("namespaces:"))

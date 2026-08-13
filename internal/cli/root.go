@@ -48,6 +48,7 @@ type options struct {
 	timeout       time.Duration
 	stableFor     time.Duration
 	wedgedFor     time.Duration
+	restartWindow time.Duration
 	budget        int
 	selector      string
 	allNamespaces bool
@@ -114,6 +115,7 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "output format: text or json")
 	cmd.Flags().DurationVar(&o.timeout, "timeout", 2*time.Minute, "max wall-clock time to wait for settle")
 	cmd.Flags().DurationVar(&o.stableFor, "stable-for", 15*time.Second, "how long a healthy state must hold before it counts as settled")
+	cmd.Flags().DurationVar(&o.restartWindow, "restart-window", 24*time.Hour, "annotate settled verdicts when containers terminated within this window (0 = no advisory)")
 	cmd.Flags().DurationVar(&o.wedgedFor, "wedged-for", 30*time.Second, "declare failure once a pod has spent this long wedged in a terminal-failure state, instead of waiting out the timeout (0 = only fail at timeout)")
 	cmd.Flags().IntVar(&o.budget, "budget", 0, "approximate token budget for output; 0 = unlimited (advisory, ~3 chars/token)")
 	cmd.Flags().StringVarP(&o.selector, "selector", "l", "", "label selector for fan-out over workloads (instead of TYPE/NAME)")
@@ -225,18 +227,19 @@ func (o *options) run(ctx context.Context, args []string) error {
 	}
 
 	return o.emit(output.Build(output.Input{
-		Kind:      string(kind),
-		Name:      name,
-		Namespace: ns,
-		Status:    statusFor(res.Outcome),
-		Reason:    res.Reason,
-		EarlyExit: res.WedgedOut,
-		WedgedFor: o.wedgedFor,
-		Elapsed:   res.Elapsed,
-		Pods:      res.Final.CurrentPods,
-		OldPods:   res.Final.OldPods,
-		Failures:  collapse.Collapse(rep.Findings),
-		Degraded:  rep.Degraded,
+		Kind:       string(kind),
+		Name:       name,
+		Namespace:  ns,
+		Status:     statusFor(res.Outcome),
+		Reason:     res.Reason,
+		EarlyExit:  res.WedgedOut,
+		WedgedFor:  o.wedgedFor,
+		Elapsed:    res.Elapsed,
+		Pods:       res.Final.CurrentPods,
+		OldPods:    res.Final.OldPods,
+		Advisories: o.settledAdvisories(res),
+		Failures:   collapse.Collapse(rep.Findings),
+		Degraded:   rep.Degraded,
 	}))
 }
 
@@ -275,18 +278,19 @@ func (o *options) runCustom(ctx context.Context, cs kubernetes.Interface, cfg *r
 	}
 
 	return o.emit(output.Build(output.Input{
-		Kind:      gvk.Kind,
-		Name:      name,
-		Namespace: ns,
-		Status:    statusFor(res.Outcome),
-		Reason:    res.Reason,
-		EarlyExit: res.WedgedOut,
-		WedgedFor: o.wedgedFor,
-		Elapsed:   res.Elapsed,
-		Pods:      res.Final.CurrentPods,
-		OldPods:   res.Final.OldPods,
-		Failures:  collapse.Collapse(rep.Findings),
-		Degraded:  rep.Degraded,
+		Kind:       gvk.Kind,
+		Name:       name,
+		Namespace:  ns,
+		Status:     statusFor(res.Outcome),
+		Reason:     res.Reason,
+		EarlyExit:  res.WedgedOut,
+		WedgedFor:  o.wedgedFor,
+		Elapsed:    res.Elapsed,
+		Pods:       res.Final.CurrentPods,
+		OldPods:    res.Final.OldPods,
+		Advisories: o.settledAdvisories(res),
+		Failures:   collapse.Collapse(rep.Findings),
+		Degraded:   rep.Degraded,
 	}))
 }
 
@@ -339,15 +343,28 @@ func (o *options) runFleet(ctx context.Context, cs kubernetes.Interface, ns stri
 	for _, r := range results {
 		earlyExit = earlyExit || r.Result.WedgedOut
 	}
+	var advisories []string
+	if o.restartWindow > 0 {
+		now := time.Now()
+		for _, r := range results {
+			if r.Result.Outcome != settle.OutcomeSettled {
+				continue
+			}
+			if adv := output.RecentRestarts(r.Result.Final.CurrentPods, o.restartWindow, now); adv != "" {
+				advisories = append(advisories, fmt.Sprintf("%s/%s -n %s: %s", r.Target.Kind, r.Target.Name, r.Target.Namespace, adv))
+			}
+		}
+	}
 	return o.emit(output.BuildFleet(output.FleetInput{
-		Namespace: ns,
-		Selector:  o.selector,
-		Elapsed:   time.Since(start),
-		Targets:   targets,
-		EarlyExit: earlyExit,
-		WedgedFor: o.wedgedFor,
-		Failures:  collapse.Collapse(findings),
-		Degraded:  degraded,
+		Namespace:  ns,
+		Selector:   o.selector,
+		Elapsed:    time.Since(start),
+		Targets:    targets,
+		Advisories: advisories,
+		EarlyExit:  earlyExit,
+		WedgedFor:  o.wedgedFor,
+		Failures:   collapse.Collapse(findings),
+		Degraded:   degraded,
 	}))
 }
 
@@ -432,6 +449,19 @@ func statusFor(o settle.Outcome) string {
 		return output.StatusProgressing
 	}
 	return output.StatusFailed
+}
+
+// settledAdvisories computes the informational notes for a settled
+// single-target verdict — today, fresh restart evidence. Non-settled
+// verdicts carry diagnosis instead.
+func (o *options) settledAdvisories(res settle.Result) []string {
+	if res.Outcome != settle.OutcomeSettled || o.restartWindow <= 0 {
+		return nil
+	}
+	if adv := output.RecentRestarts(res.Final.CurrentPods, o.restartWindow, time.Now()); adv != "" {
+		return []string{adv}
+	}
+	return nil
 }
 
 // emit trims the verdict to the token budget, writes it in the chosen

@@ -65,9 +65,10 @@ into one command with a definite answer and a meaningful exit code.
 - **Custom resources work.** Any namespaced TYPE/NAME
   (`kubectl mole rollout/api`, `kubectl mole cluster.postgresql.example/db`)
   resolves through API discovery and settles by kstatus conventions
-  (`Ready` condition, `observedGeneration`). Pods the resource owns are
-  still diagnosed underneath it, and a resource with no status to read
-  says so in the verdict instead of pretending.
+  (`Ready` condition, `observedGeneration`) — tolerating CRDs that publish
+  `observedGeneration` as a string, as Argo Rollouts does. Pods the
+  resource owns are still diagnosed underneath it, and a resource with no
+  status to read says so in the verdict instead of pretending.
 
 ## The numbers
 
@@ -179,7 +180,9 @@ denied, or matching nothing — makes the verdict say so instead of quietly
 reporting the clusters that could.
 
 Consuming the output from an agent or CI? Read
-[docs/AGENTS.md](docs/AGENTS.md).
+[docs/AGENTS.md](docs/AGENTS.md). Running Helm or Argo CD? The verified
+recipes — gating an upgrade, checking an Application, Rollouts,
+multi-cluster — are in [docs/recipes.md](docs/recipes.md).
 
 ## What mole is not
 

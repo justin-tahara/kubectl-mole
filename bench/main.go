@@ -32,11 +32,40 @@ func main() {
 		only        = flag.String("only", "", "regexp filter on scenario names")
 		full        = flag.Bool("full", false, "include the large fan-out scale points (500 and 5000 namespaces)")
 		check       = flag.Bool("check", false, "compare fresh mole output sizes against the committed results.csv instead of overwriting results")
+		reportOnly  = flag.Bool("report-only", false, "regenerate RESULTS.md and charts/ from the committed results.csv and meta.json without measuring anything")
 	)
 	flag.Parse()
+	if *reportOnly {
+		if err := regenerateReport(*outDir); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if err := run(*kubeContext, *molePath, *kstatusPath, *kstatusVer, *outDir, *only, *full, *check); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// regenerateReport rewrites RESULTS.md and charts/ from the committed
+// measurements — presentation changes (report wording, chart styling) need
+// no cluster and no re-measurement.
+func regenerateReport(outDir string) error {
+	rows, err := readRows(filepath.Join(outDir, "results.csv"))
+	if err != nil {
+		return fmt.Errorf("read committed results: %w", err)
+	}
+	meta, err := readMeta(filepath.Join(outDir, "meta.json"))
+	if err != nil {
+		return fmt.Errorf("read committed run meta: %w", err)
+	}
+	if err := writeMarkdown(filepath.Join(outDir, "RESULTS.md"), rows, meta); err != nil {
+		return err
+	}
+	if err := writeCharts(filepath.Join(outDir, "charts"), rows); err != nil {
+		return err
+	}
+	log.Printf("regenerated %s and %s from committed results", filepath.Join(outDir, "RESULTS.md"), filepath.Join(outDir, "charts"))
+	return nil
 }
 
 func run(kubeContext, molePath, kstatusPath, kstatusVer, outDir, only string, full, check bool) error {
@@ -120,10 +149,16 @@ func run(kubeContext, molePath, kstatusPath, kstatusVer, outDir, only string, fu
 	if err := writeCSV(filepath.Join(outDir, "results.csv"), rows); err != nil {
 		return err
 	}
+	if err := writeMeta(filepath.Join(outDir, "meta.json"), meta); err != nil {
+		return err
+	}
 	if err := writeMarkdown(filepath.Join(outDir, "RESULTS.md"), rows, meta); err != nil {
 		return err
 	}
-	log.Printf("wrote %s and %s", filepath.Join(outDir, "results.csv"), filepath.Join(outDir, "RESULTS.md"))
+	if err := writeCharts(filepath.Join(outDir, "charts"), rows); err != nil {
+		return err
+	}
+	log.Printf("wrote %s, %s, and %s", filepath.Join(outDir, "results.csv"), filepath.Join(outDir, "RESULTS.md"), filepath.Join(outDir, "charts"))
 	return nil
 }
 

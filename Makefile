@@ -8,7 +8,7 @@ BENCH_KUBECONFIG := $(CURDIR)/.kube/bench-config
 KSTATUS_VERSION := v0.7.24
 
 .PHONY: build test vet lint clean kind-up kind-down e2e \
-	bench bench-run bench-up bench-down bench-check demo snapshot
+	bench bench-run bench-up bench-down bench-check bench-report demo snapshot
 
 build:
 	go build -o bin/$(BINARY) ./cmd/kubectl-mole
@@ -75,6 +75,11 @@ bench-check: build bin/kubectl-status
 # archives, checksums, and container images, unsigned and unpublished.
 snapshot:
 	goreleaser release --snapshot --clean --skip=sign
+
+# bench-report regenerates RESULTS.md and charts/ from the committed
+# measurements — no cluster, no re-measurement.
+bench-report:
+	go run ./bench -report-only
 
 # demo re-records assets/demo.gif against the mole-dev cluster (needs vhs).
 # The generated demo-config aliases that one cluster as prod-east/prod-west

@@ -112,9 +112,35 @@ func splitStatefulSetPods(sts *appsv1.StatefulSet, pods []*corev1.Pod) ([]*corev
 	return current, old
 }
 
+// dsConverged is the DaemonSet controller's own statement that every pod
+// is scheduled, updated, and available for the observed generation. It
+// outranks the hash split: a control-plane upgrade can orphan the newest
+// ControllerRevision (template serialization drift mints a revision that
+// matches no pods, ever), and hash-label uniformity is not guaranteed even
+// on healthy sets. Max-revision-hash is mole's derivation of "current";
+// the status counts are the authority's.
+func dsConverged(ds *appsv1.DaemonSet) bool {
+	return ds.Status.ObservedGeneration >= ds.Generation &&
+		ds.Status.UpdatedNumberScheduled == ds.Status.DesiredNumberScheduled &&
+		ds.Status.NumberAvailable == ds.Status.DesiredNumberScheduled
+}
+
 // splitDaemonSetPods separates pods carrying the DaemonSet's newest
-// ControllerRevision hash from everything else.
+// ControllerRevision hash from everything else. When the controller
+// reports full convergence, every owned pod is current and the hash is
+// not consulted; the split only classifies during a rollout the
+// controller itself says is in flight.
 func splitDaemonSetPods(ds *appsv1.DaemonSet, crLister appslisters.ControllerRevisionLister, pods []*corev1.Pod) ([]*corev1.Pod, []*corev1.Pod) {
+	if dsConverged(ds) {
+		var current []*corev1.Pod
+		for _, p := range pods {
+			if foreignPod(p, ds.UID) {
+				continue
+			}
+			current = append(current, p)
+		}
+		return current, nil
+	}
 	crs, err := crLister.ControllerRevisions(ds.Namespace).List(labels.Everything())
 	if err != nil {
 		return nil, pods

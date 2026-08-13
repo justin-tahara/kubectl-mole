@@ -34,7 +34,15 @@ func controlled(name, hash string, owner types.UID) *corev1.Pod {
 // for its whole timeout.
 func TestSplitDropsSiblingPods(t *testing.T) {
 	t.Run("daemonset", func(t *testing.T) {
-		ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "n", UID: "ds-1"}}
+		// Mid-rollout status: the convergence gate must stand aside and let
+		// the hash split classify (a converged DS never reports old pods).
+		ds := &appsv1.DaemonSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "n", UID: "ds-1", Generation: 2},
+			Status: appsv1.DaemonSetStatus{
+				ObservedGeneration: 2, DesiredNumberScheduled: 2,
+				UpdatedNumberScheduled: 1, NumberAvailable: 1,
+			},
+		}
 		cr := &appsv1.ControllerRevision{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "agent-abc", Namespace: "n",

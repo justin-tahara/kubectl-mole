@@ -203,19 +203,29 @@ func TestContextsCollapseAcrossContexts(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
+	// --stable-for stays at the default-strength 15s on purpose: a crash-loop
+	// pod without a readiness probe flickers Ready for the instant before it
+	// exits, and under CI load one context's informer cache can hold that
+	// stale-healthy deployment status past a short window — settling a
+	// context this test needs to fail.
 	v, exit := runMole(t, ctx, "-n", ns, "-l", "app=crash",
 		"--contexts", "mole-east,mole-west", "--kubeconfig", kubeconfig,
-		"-o", "json", "--timeout", "4m", "--stable-for", "5s", "--wedged-for", "20s")
+		"-o", "json", "--timeout", "4m", "--stable-for", "15s", "--wedged-for", "20s")
 
 	if v.Status != output.StatusFailed || exit != 1 {
 		t.Fatalf("want failed/1, got %s/%d (%s)", v.Status, exit, v.Reason)
+	}
+	for _, c := range v.Contexts {
+		if c.Status != output.StatusFailed {
+			t.Fatalf("context %s must fail, got %q (%s); contexts: %+v", c.Context, c.Status, c.Reason, v.Contexts)
+		}
 	}
 	if len(v.Failures) != 1 {
 		t.Fatalf("one cause via two contexts must collapse to 1 entry, got %d: %+v", len(v.Failures), v.Failures)
 	}
 	f := v.Failures[0]
 	if f.Affected < 2 {
-		t.Fatalf("anchors must span both contexts, affected=%d", f.Affected)
+		t.Fatalf("anchors must span both contexts, affected=%d; failures: %+v contexts: %+v", f.Affected, v.Failures, v.Contexts)
 	}
 	for _, prefix := range []string{"mole-east/", "mole-west/"} {
 		found := false

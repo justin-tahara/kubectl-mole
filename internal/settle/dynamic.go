@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -125,7 +126,7 @@ func (s *dynamicSource) snapshot() (snapshot, error) {
 	if !ok {
 		return snapshot{}, fmt.Errorf("unexpected object type %T for %s", obj, s.target)
 	}
-	res, err := status.Compute(u)
+	res, err := status.Compute(normalizeObservedGeneration(u))
 	if err != nil {
 		return snapshot{}, fmt.Errorf("kstatus compute: %w", err)
 	}
@@ -145,6 +146,28 @@ func (s *dynamicSource) snapshot() (snapshot, error) {
 		snap.note = "the resource reports no status; settled means it exists"
 	}
 	return snap, nil
+}
+
+// normalizeObservedGeneration tolerates CRDs that publish
+// status.observedGeneration as a string — Argo Rollouts does, a legacy of
+// its hash-based generations — where kstatus hard-errors on the type and
+// mole would emit no verdict at all. A numeric string is coerced so the
+// staleness guard keeps working; anything else (a legacy hash) is dropped so
+// kstatus skips the check instead of erroring. Only the copy is touched:
+// the object belongs to the informer cache.
+func normalizeObservedGeneration(u *unstructured.Unstructured) *unstructured.Unstructured {
+	raw, found, _ := unstructured.NestedFieldNoCopy(u.Object, "status", "observedGeneration")
+	s, isString := raw.(string)
+	if !found || !isString {
+		return u
+	}
+	u = u.DeepCopy()
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		_ = unstructured.SetNestedField(u.Object, n, "status", "observedGeneration")
+	} else {
+		unstructured.RemoveNestedField(u.Object, "status", "observedGeneration")
+	}
+	return u
 }
 
 // ownedPods finds the pods below the resource: by its spec.selector when it

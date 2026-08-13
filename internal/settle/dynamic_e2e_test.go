@@ -244,3 +244,46 @@ func TestCustomResource(t *testing.T) {
 		t.Fatalf("no CrashLoopBackOff finding chained to the widget; findings: %+v", findings)
 	})
 }
+
+// setWidgetReadyStringGeneration writes status the way Argo Rollouts does:
+// observedGeneration as a STRING. kstatus hard-errors on the type; mole must
+// normalize instead of emitting no verdict at all.
+func setWidgetReadyStringGeneration(t *testing.T, dyn dynamic.Interface, ns, name, observed string) {
+	t.Helper()
+	got, err := dyn.Resource(widgetGVR).Namespace(ns).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get widget: %v", err)
+	}
+	got.Object["status"] = map[string]any{
+		"observedGeneration": observed,
+		"conditions": []any{map[string]any{
+			"type": "Ready", "status": "True", "reason": "Test", "message": "ready",
+			"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+		}},
+	}
+	if _, err := dyn.Resource(widgetGVR).Namespace(ns).UpdateStatus(context.Background(), got, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update widget status: %v", err)
+	}
+}
+
+// A CRD that publishes observedGeneration as a string — Argo Rollouts does —
+// must still get a verdict. Both shapes: a numeric string (coerced, guard
+// kept) and a legacy hash (dropped, guard skipped).
+func TestCustomResourceStringObservedGeneration(t *testing.T) {
+	t.Parallel()
+	cs := client(t)
+	dyn := dynClient(t)
+	ensureWidgetCRD(t, dyn)
+	ns := testNamespace(t, cs)
+
+	for name, observed := range map[string]string{"numeric": "1", "hash": "7d9fabc"} {
+		if _, err := dyn.Resource(widgetGVR).Namespace(ns).Create(context.Background(), widget(ns, name), metav1.CreateOptions{}); err != nil {
+			t.Fatalf("create widget %s: %v", name, err)
+		}
+		setWidgetReadyStringGeneration(t, dyn, ns, name, observed)
+		res := runCustom(t, cs, dyn, ns, name, 90*time.Second)
+		if res.Outcome != settle.OutcomeSettled {
+			t.Fatalf("widget %s (observedGeneration %q): want settled, got %s (%s)", name, observed, res.Outcome, res.Reason)
+		}
+	}
+}

@@ -54,6 +54,10 @@ func TestDeltaIncidentLoop(t *testing.T) {
 			"--since", state)
 	}
 
+	// The baseline's advisory is the whole premise of the loop, so the
+	// crash has to be recorded before the first check.
+	e2eAwaitTermination(t, cs, ns, "flappy", time.Time{})
+
 	// Run 1: no state file yet — the baseline, with normal exit codes.
 	v1, exit := run("2m")
 	if v1.Status != output.StatusSettled || exit != 0 {
@@ -79,10 +83,14 @@ func TestDeltaIncidentLoop(t *testing.T) {
 
 	// The event the loop watches for: the container is killed again and
 	// recovers before the next check (a fresh pod crashes once and holds).
+	killedAt := time.Now()
 	if err := cs.CoreV1().Pods(ns).DeleteCollection(context.Background(), metav1.DeleteOptions{},
 		metav1.ListOptions{LabelSelector: "app=flappy"}); err != nil {
 		t.Fatal(err)
 	}
+	// "recovers before the next check" is the point of run 3: wait for the
+	// replacement pod's own crash, not the one run 1 already saw.
+	e2eAwaitTermination(t, cs, ns, "flappy", killedAt)
 
 	// Run 3: the settle-state hash still matches — pod names are not part
 	// of a settled verdict — but the advisory's freshest termination moved.

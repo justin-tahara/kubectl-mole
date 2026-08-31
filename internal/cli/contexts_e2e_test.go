@@ -135,6 +135,39 @@ func e2eDeployment(t *testing.T, cs *kubernetes.Clientset, ns, name string, mut 
 
 // runMole drives the real command — flag parsing, dispatch, emit — and
 // returns the parsed verdict plus the exit code the process would return.
+// e2eAwaitTermination waits until a pod of app has recorded a container
+// termination that finished after notBefore.
+//
+// The advisory tests create (or delete) the workload and go straight to
+// mole, which leaves their precondition implicit: a settled verdict only
+// carries a restart advisory if the crash is already in the pod's status
+// when mole settles. Under a loaded cluster the settle can win that race,
+// and the assertion then fails on timing rather than on behaviour. Waiting
+// makes the precondition true instead of likely, without weakening what the
+// test asserts afterwards.
+func e2eAwaitTermination(t *testing.T, cs *kubernetes.Clientset, ns, app string, notBefore time.Time) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		pods, err := cs.CoreV1().Pods(ns).List(context.Background(),
+			metav1.ListOptions{LabelSelector: "app=" + app})
+		if err == nil {
+			for i := range pods.Items {
+				for _, st := range pods.Items[i].Status.ContainerStatuses {
+					term := st.LastTerminationState.Terminated
+					if term != nil && !term.FinishedAt.IsZero() && term.FinishedAt.Time.After(notBefore) {
+						return
+					}
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no container termination after %s recorded for app=%s in %s", notBefore, app, ns)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 func runMole(t *testing.T, ctx context.Context, args ...string) (output.Verdict, int) {
 	t.Helper()
 	var out, errOut bytes.Buffer

@@ -34,6 +34,10 @@ func TestSettledAdvisoryCarriesCrashLogEvidence(t *testing.T) {
 			"test -f /state/crashed || { touch /state/crashed; echo '" + marker + "'; exit 7; }; sleep 3600"}
 	})
 
+	// The crash must be in the pod's status before mole settles, or there
+	// is no advisory to carry evidence.
+	e2eAwaitTermination(t, cs, ns, "flappy", time.Time{})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	v, exit := runMole(t, ctx, "deployment/flappy", "-n", ns,

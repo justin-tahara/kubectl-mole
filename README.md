@@ -101,11 +101,10 @@ Homebrew (macOS and Linux):
 brew install justin-tahara/tap/kubectl-mole
 ```
 
-Krew, straight from this repo's manifest:
+[Krew](https://krew.sigs.k8s.io/):
 
 ```
-kubectl krew install --manifest-url \
-  https://raw.githubusercontent.com/justin-tahara/kubectl-mole/main/deploy/krew/mole.yaml
+kubectl krew install mole
 ```
 
 Binaries for every platform are on the

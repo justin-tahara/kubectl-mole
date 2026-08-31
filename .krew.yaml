@@ -1,6 +1,7 @@
-# krew-release-bot template: on each release the bot fills in the tag and
-# artifact digests and opens a version-bump PR against krew-index. The first
-# submission of a new plugin is manual — see deploy/krew/mole.yaml.
+# The single source of truth for mole's krew-index entry: on each release
+# krew-release-bot fills in the tag and artifact digests and opens a
+# version-bump PR against krew-index. The initial submission was manual and
+# is done (kubernetes-sigs/krew-index#6190); nothing here is hand-edited.
 apiVersion: krew.googlecontainertools.github.com/v1alpha2
 kind: Plugin
 metadata:

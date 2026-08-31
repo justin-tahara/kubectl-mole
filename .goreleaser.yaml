@@ -92,12 +92,23 @@ docker_signs:
 snapshot:
   version_template: "{{ incpatch .Version }}-dev"
 
+# Release notes are for whoever downloads the release, so they carry product
+# changes only. The repo's other prefixes are plumbing that says nothing to a
+# user: benchmarks, the krew manifest, CI, lint, the release pipeline and the
+# e2e suite. What survives is cli/settle/output/fix/perf.
 changelog:
   sort: asc
   filters:
     exclude:
       - "^docs:"
       - "^chore:"
+      - "^bench:"
+      - "^krew:"
+      - "^ci:"
+      - "^lint:"
+      - "^release:"
+      - "^e2e:"
+      - "^test:"
 
 release:
   prerelease: auto

@@ -66,6 +66,7 @@ jobs:
           subject-checksums: dist/checksums.txt
       # Regenerates the Homebrew tap formula from this release's checksums.
       - name: Update Homebrew tap formula
+        id: tap
         if: env.HOMEBREW_TAP_TOKEN != ''
         run: ./scripts/update-tap-formula.sh "$GITHUB_REF_NAME"
       # Opens a version-bump PR against krew-index from the .krew.yaml
@@ -74,5 +75,34 @@ jobs:
       # auto-closed noise on krew-index. Flip the KREW_INDEX_ACCEPTED
       # repository variable to 'true' once the submission merges.
       - uses: rajatjindal/krew-release-bot@v0.0.51
+        id: krew
         if: vars.KREW_INDEX_ACCEPTED == 'true'
         continue-on-error: true
+      # By the time distribution runs the binaries are already published, so
+      # a channel that skips or fails must not retroactively fail the
+      # release — but it must not pass unnoticed either, and both channels
+      # were silent before. The tap step simply vanishes without its secret,
+      # and the krew bot is continue-on-error, so a template, token or
+      # webhook fault would leave users pinned to the previous version
+      # behind a green tick. Neither is fixed by failing the job; both are
+      # fixed by saying so where a human looks after tagging.
+      - name: Distribution summary
+        if: always()
+        env:
+          TAP: ${{ steps.tap.outcome || 'skipped' }}
+          KREW: ${{ steps.krew.outcome || 'skipped' }}
+        run: |
+          {
+            echo "### Distribution channels"
+            echo
+            echo "| Channel | Outcome |"
+            echo "|---|---|"
+            echo "| Homebrew tap | \`$TAP\` |"
+            echo "| krew-index | \`$KREW\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TAP" != success ]; then
+            echo "::warning title=Homebrew tap not updated::outcome '$TAP' — brew users stay on the previous version. Set the HOMEBREW_TAP_TOKEN secret (issue #53), or run scripts/update-tap-formula.sh $GITHUB_REF_NAME by hand."
+          fi
+          if [ "$KREW" != success ]; then
+            echo "::warning title=krew-index not bumped::outcome '$KREW' — krew users stay on the previous version. Check the krew-release-bot step and the KREW_INDEX_ACCEPTED variable (issue #52)."
+          fi

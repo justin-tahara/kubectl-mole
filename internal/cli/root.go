@@ -56,8 +56,8 @@ type options struct {
 	since         string
 	// sinceVerdict is the parsed --since file; nil with since set means
 	// the file did not exist — a baseline run.
-	sinceVerdict *output.Verdict
-	contexts     []string
+	sinceVerdict  *output.Verdict
+	contexts      []string
 	allNamespaces bool
 	maxTargets    int
 	includeJobs   bool
@@ -78,6 +78,16 @@ func Execute(streams genericiooptions.IOStreams, version string) int {
 		streams:     streams,
 	}
 	cmd := newMoleCommand(o, version)
+
+	// Under the kubectl_complete-mole name the binary is kubectl's
+	// completion handler for `kubectl mole ...`, which is cobra's hidden
+	// __complete verb over the same flag surface.
+	args := os.Args[1:]
+	if asCompletionInvocation(os.Args[0]) {
+		o.prepareCompletion()
+		args = append([]string{cobra.ShellCompRequestCmd}, args...)
+	}
+	cmd.SetArgs(args)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -114,9 +124,10 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 			fmt.Fprintf(o.streams.Out, "kubectl-mole version %s\n", version)
 		},
 	})
-	// Subcommands make cobra offer its completion machinery; kubectl owns
-	// plugin completion, so keep the surface at exactly one verb plus
-	// version.
+	// kubectl owns plugin completion — it runs kubectl_complete-mole and
+	// reads cobra's hidden __complete verb — so a user-facing `completion`
+	// command would only add a second, worse way to do it. The surface
+	// stays exactly one verb plus version. See completion.go.
 	cmd.CompletionOptions.DisableDefaultCmd = true
 
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "output format: text or json")
@@ -135,6 +146,8 @@ func newMoleCommand(o *options, version string) *cobra.Command {
 	cmd.Flags().Float32Var(&o.qps, "qps", 20, "client-side API request rate (queries per second)")
 	cmd.Flags().IntVar(&o.burst, "burst", 30, "client-side API request burst allowance")
 	o.configFlags.AddFlags(cmd.Flags())
+	// After AddFlags: the kubeconfig flags complete too.
+	o.registerCompletions(cmd)
 	return cmd
 }
 

@@ -126,6 +126,28 @@ Any binary on your `PATH` named `kubectl-mole` works as a `kubectl mole`
 plugin. RBAC for the read access mole needs ships in
 [deploy/rbac.yaml](deploy/rbac.yaml).
 
+### Tab completion
+
+`kubectl mole <TAB>` completes types and workload names, plus `-n`, `-o`,
+`--context` and `--contexts`. kubectl (v1.26+) looks for an executable named
+`kubectl_complete-mole` on your `PATH`, and the mole binary answers to that
+name, so completion is one symlink:
+
+```
+# krew
+ln -s ~/.krew/bin/kubectl-mole ~/.krew/bin/kubectl_complete-mole
+
+# a binary you placed on PATH yourself
+ln -s /usr/local/bin/kubectl-mole /usr/local/bin/kubectl_complete-mole
+```
+
+Homebrew makes the symlink for you. This rides on kubectl's own shell
+completion, so set that up first (`kubectl completion zsh`, `bash`, ...).
+
+Names are read live from whatever cluster your flags point at. A cluster
+that is unreachable, slow, or denies the read completes nothing at all —
+never an error over the line you are typing.
+
 ## Use
 
 ```

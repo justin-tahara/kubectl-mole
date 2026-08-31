@@ -32,6 +32,10 @@ class KubectlMole < Formula
 
   def install
     bin.install "kubectl-mole"
+    # kubectl completes `kubectl mole ...` by running kubectl_complete-mole
+    # from PATH. The binary answers to that name, so the symlink is the
+    # whole completion install.
+    bin.install_symlink bin/"kubectl-mole" => "kubectl_complete-mole"
   end
 
   def caveats
@@ -43,5 +47,7 @@ class KubectlMole < Formula
 
   test do
     assert_match "kubectl-mole version v#{version}", shell_output("#{bin}/kubectl-mole --version")
+    # Under the completion name the same binary answers Tab presses.
+    assert_match "deployments", shell_output("#{bin}/kubectl_complete-mole ''")
   end
 end

@@ -46,7 +46,7 @@ jobs:
       # 1.2GiB orphan per release (v0.2.2 did; v0.3.0 provably could not
       # see it). The cache is seeded from main by release-cache.yaml,
       # and main-saved caches are restorable from every ref.
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with:
           path: ~/.cache/go-build
           key: release-gobuild-${{ hashFiles('go.mod', 'go.sum') }}-main

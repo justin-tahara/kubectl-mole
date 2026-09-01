@@ -38,7 +38,7 @@ jobs:
       # An exact-key hit means the seed is current: the restore itself
       # refreshes the eviction clock and the snapshot build is skipped.
       - id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: release-gobuild-${{ hashFiles('go.mod', 'go.sum') }}-main

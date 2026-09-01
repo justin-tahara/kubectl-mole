@@ -48,12 +48,12 @@ jobs:
       # kubectl-status compiles from source (~90s of module downloads per
       # run); the binary is pinned via KSTATUS_VERSION in the Makefile, so
       # keying on the Makefile rebuilds it exactly when the pin moves.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: bin/kubectl-status
           key: kubectl-status-${{ runner.os }}-${{ hashFiles('Makefile') }}
       # The o200k_base tokenizer file downloads on first use.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: bench/.tiktoken-cache
           key: tiktoken-o200k-v1
